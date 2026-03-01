@@ -1698,11 +1698,11 @@ async function renderDetailContent(ticker, isWatchlist = false) {
   const chartLegendHTML = `
     <div style="display:flex; gap:var(--space-3); flex-wrap:wrap; margin-top:var(--space-2); font-size:11px; color:var(--color-text-muted);">
       <span style="display:flex; align-items:center; gap:4px;">
-        <span style="width:16px; height:2px; background:#4ECDC4; display:inline-block; border-radius:1px;"></span> Price
+        <span style="width:16px; height:2px; background:#4ECDC4; display:inline-block; border-radius:1px;"></span> Price ${inPortfolio ? '<span style="opacity:0.6;">(left)</span>' : ''}
       </span>
       ${inPortfolio ? `
       <span style="display:flex; align-items:center; gap:4px;">
-        <span style="width:16px; height:2px; background:#F59E0B; display:inline-block; border-radius:1px;"></span> Holdings Value
+        <span style="width:16px; height:2px; background:#F59E0B; display:inline-block; border-radius:1px;"></span> Holdings Value <span style="opacity:0.6;">(right)</span>
       </span>
       <span style="display:flex; align-items:center; gap:4px;">
         <span style="width:8px; height:8px; background:#10B981; border-radius:50%; display:inline-block;"></span> Buy
@@ -1916,7 +1916,7 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
   const inPortfolio = !!(portfolio[ticker] && !isWatchlistItem);
   const holding = portfolio[ticker];
 
-  // Base datasets: price line
+  // Base datasets: price line (left Y-axis)
   const datasets = [{
     label: 'Price',
     data: hist.close,
@@ -1928,6 +1928,7 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
     pointHoverRadius: 4,
     pointHoverBackgroundColor: primaryColor,
     borderWidth: 2,
+    yAxisID: 'y',
   }];
 
   // ============================================
@@ -1952,6 +1953,7 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
       pointHoverBackgroundColor: '#F59E0B',
       borderWidth: 2,
       spanGaps: true,
+      yAxisID: 'y1',
     });
   }
 
@@ -1971,7 +1973,7 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
       return null;
     });
 
-    // Buy markers dataset
+    // Buy markers dataset (on price axis)
     datasets.push({
       label: 'Buy',
       data: buyData,
@@ -1987,9 +1989,10 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
       pointBackgroundColor: '#10B981',
       pointBorderColor: '#fff',
       pointBorderWidth: 2,
+      yAxisID: 'y',
     });
 
-    // Sell markers dataset
+    // Sell markers dataset (on price axis)
     datasets.push({
       label: 'Sell',
       data: sellData,
@@ -2005,6 +2008,7 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
       pointBackgroundColor: '#EF4444',
       pointBorderColor: '#fff',
       pointBorderWidth: 2,
+      yAxisID: 'y',
     });
   }
 
@@ -2055,6 +2059,7 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
       pointBackgroundColor: '#A78BFA',
       pointBorderColor: '#fff',
       pointBorderWidth: 1,
+      yAxisID: 'y',
     });
   }
 
@@ -2094,6 +2099,7 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
       pointBorderColor: '#fff',
       pointBorderWidth: 2,
       borderWidth: 1,
+      yAxisID: 'y',
     });
   }
 
@@ -2152,8 +2158,30 @@ async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = [
           border: { display: false },
         },
         y: {
-          ticks: { color: textColor, font: { size: 9, family: 'DM Mono' }, callback: v => '$' + fmt(v, 0) },
+          type: 'linear',
+          position: 'left',
+          title: {
+            display: inPortfolio,
+            text: 'Stock Price',
+            color: primaryColor,
+            font: { size: 10, family: 'DM Sans', weight: '500' },
+          },
+          ticks: { color: primaryColor, font: { size: 9, family: 'DM Mono' }, callback: v => '$' + fmt(v, 0) },
           grid: { color: gridColor, lineWidth: 0.5 },
+          border: { display: false },
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          display: inPortfolio,
+          title: {
+            display: true,
+            text: 'Holdings Value',
+            color: '#F59E0B',
+            font: { size: 10, family: 'DM Sans', weight: '500' },
+          },
+          ticks: { color: '#F59E0B', font: { size: 9, family: 'DM Mono' }, callback: v => '$' + fmtCompact(v) },
+          grid: { drawOnChartArea: false },
           border: { display: false },
         },
       },

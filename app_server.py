@@ -26,6 +26,16 @@ app = Flask(__name__, static_folder='.', static_url_path='')
 
 DB_PATH = os.environ.get("FOLIO_DB_PATH", "folio.db")
 
+# Ensure the database directory exists (for Railway volume mount at /data)
+_db_dir = os.path.dirname(DB_PATH)
+if _db_dir and not os.path.exists(_db_dir):
+    try:
+        os.makedirs(_db_dir, exist_ok=True)
+    except OSError:
+        # If we can't create /data, fall back to local directory
+        DB_PATH = "folio.db"
+        print(f"Warning: Could not create {_db_dir}, using local DB path: {DB_PATH}")
+
 def get_db():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
