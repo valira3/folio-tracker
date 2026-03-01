@@ -19,5 +19,5 @@ ENV FOLIO_DB_PATH=/data/folio.db
 # Expose port (Cloud Run uses PORT env var)
 EXPOSE 8080
 
-# Run with gunicorn — Cloud Run sends SIGTERM for graceful shutdown
-CMD exec gunicorn -w 2 -b 0.0.0.0:$PORT --timeout 120 --graceful-timeout 30 app_server:app
+# Run with gunicorn
+CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:${PORT} --timeout 120 --graceful-timeout 30 app_server:app"]
