@@ -16,8 +16,9 @@ RUN mkdir -p .cache /data
 ENV PORT=8080
 ENV FOLIO_DB_PATH=/data/folio.db
 
-# Expose port (Cloud Run uses PORT env var)
+# Expose port
 EXPOSE 8080
 
-# Run with gunicorn
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:8080", "--timeout", "120", "--graceful-timeout", "30", "app_server:app"]
+# Run with gunicorn — use shell form so $PORT is expanded at runtime
+# Railway overrides PORT env var; shell form ensures it's picked up
+CMD gunicorn -w 2 -b 0.0.0.0:$PORT --timeout 120 --graceful-timeout 30 app_server:app
