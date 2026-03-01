@@ -11,6 +11,9 @@ const MARKET_API = '/market';
 let authToken = null;
 let currentUser = null;
 
+// Module-level variable for transaction type in add-lot modal
+let selectedTxType = 'buy';
+
 // API helpers
 async function api(path, method = 'GET', body = null) {
   const url = `${API_BASE}${path}${authToken ? (path.includes('?') ? '&' : '?') + 'token=' + authToken : ''}`;
@@ -353,20 +356,38 @@ function timeAgo(dateStr) {
   return `${diffDay}d ago`;
 }
 
+// ============================================
+// FEATURE 1: Updated getPortfolioHoldings()
+// Buy lots add shares, sell lots subtract shares.
+// Total cost only counts buy lots.
+// ============================================
 function getPortfolioHoldings() {
   const holdings = [];
   for (const [ticker, data] of Object.entries(portfolio)) {
     const stock = getStock(ticker);
     if (!stock || !stock.price) continue;
-    const totalShares = data.lots.reduce((s, l) => s + l.qty, 0);
-    const totalCost = data.lots.reduce((s, l) => s + l.qty * l.price, 0);
-    const avgCost = totalCost / totalShares;
-    const currentValue = totalShares * stock.price;
+
+    // Net shares: buys add, sells subtract (backward-compat: no type = buy)
+    const totalShares = data.lots.reduce((s, l) => {
+      const isSell = (l.type || 'buy') === 'sell';
+      return isSell ? s - l.qty : s + l.qty;
+    }, 0);
+
+    // Cost basis: only buy lots
+    const totalCost = data.lots.reduce((s, l) => {
+      const isSell = (l.type || 'buy') === 'sell';
+      return isSell ? s : s + l.qty * l.price;
+    }, 0);
+
+    const netShares = Math.max(0, totalShares);
+    const avgCost = totalCost > 0 && netShares > 0 ? totalCost / netShares : 0;
+    const currentValue = netShares * stock.price;
     const pnl = currentValue - totalCost;
     const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
-    const dayChangeValue = totalShares * stock.dayChange;
+    const dayChangeValue = netShares * (stock.dayChange || 0);
+
     holdings.push({
-      ticker, stock, totalShares, totalCost, avgCost, currentValue, pnl, pnlPct, dayChangeValue,
+      ticker, stock, totalShares: netShares, totalCost, avgCost, currentValue, pnl, pnlPct, dayChangeValue,
       lots: data.lots,
     });
   }
@@ -382,6 +403,21 @@ function getPortfolioSummary() {
   const dayChange = holdings.reduce((s, h) => s + h.dayChangeValue, 0);
   const dayChangePct = totalValue > 0 ? (dayChange / (totalValue - dayChange)) * 100 : 0;
   return { totalValue, totalCost, totalPnl, totalPnlPct, dayChange, dayChangePct, holdings };
+}
+
+// Helper: compute shares held on a specific date for a ticker (for time-aware chart)
+// Takes buy/sell lots into account — only lots whose date <= targetDate count.
+function getSharesHeldOnDate(ticker, targetDate) {
+  const data = portfolio[ticker];
+  if (!data || !data.lots) return 0;
+  let shares = 0;
+  for (const lot of data.lots) {
+    if (lot.date <= targetDate) {
+      const isSell = (lot.type || 'buy') === 'sell';
+      shares = isSell ? shares - lot.qty : shares + lot.qty;
+    }
+  }
+  return Math.max(0, shares);
 }
 
 // Monte Carlo simulation for prediction
@@ -514,8 +550,9 @@ function switchView(view) {
 // ============================================
 
 let currentSort = 'value';
+let miniPortfolioChart = null;
 
-function renderPortfolioView() {
+async function renderPortfolioView() {
   const summary = getPortfolioSummary();
   
   if (summary.holdings.length === 0 && Object.keys(portfolio).length > 0) {
@@ -541,6 +578,11 @@ function renderPortfolioView() {
       <span class="hero-kpi-metric-value mono">$${fmtCompact(summary.totalCost)}</span>
     </div>
   `;
+
+  // ============================================
+  // FEATURE 4: Mini portfolio value chart
+  // ============================================
+  await renderMiniPortfolioChart();
 
   const sortOptions = [
     { key: 'value', label: 'Value' },
@@ -589,6 +631,138 @@ function renderPortfolioView() {
     listEl.querySelectorAll('.sparkline-canvas').forEach(canvas => {
       drawSparkline(canvas, canvas.dataset.ticker);
     });
+  });
+}
+
+// ============================================
+// FEATURE 4: Mini portfolio chart implementation
+// ============================================
+async function renderMiniPortfolioChart() {
+  // Ensure container exists in the DOM (inject it between hero metrics and sort-bar if needed)
+  let container = document.getElementById('portfolio-mini-chart-container');
+  if (!container) {
+    const sortBar = document.getElementById('sort-bar');
+    if (sortBar) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'portfolio-mini-chart';
+      wrapper.id = 'portfolio-mini-chart-container';
+      wrapper.style.cssText = 'height:120px; margin: 0 0 var(--space-3) 0; cursor:pointer; position:relative;';
+      wrapper.title = 'View full chart';
+      sortBar.parentNode.insertBefore(wrapper, sortBar);
+      const canvas = document.createElement('canvas');
+      canvas.id = 'portfolio-mini-canvas';
+      wrapper.appendChild(canvas);
+      wrapper.addEventListener('click', () => switchView('chart'));
+    }
+  }
+
+  const canvas = document.getElementById('portfolio-mini-canvas');
+  if (!canvas) return;
+
+  // Destroy existing chart
+  if (miniPortfolioChart) { miniPortfolioChart.destroy(); miniPortfolioChart = null; }
+
+  const holdingTickers = Object.keys(portfolio);
+  if (holdingTickers.length === 0) return;
+
+  // Fetch 1mo history
+  const yperiod = '1mo';
+  await fetchHistory(holdingTickers, '30');
+
+  const allDates = new Set();
+  const tickerHists = {};
+  holdingTickers.forEach(t => {
+    const h = historicalCache[`${t}:${yperiod}`];
+    if (h && h.dates) {
+      tickerHists[t] = h;
+      h.dates.forEach(d => allDates.add(d));
+    }
+  });
+
+  const sortedDates = [...allDates].sort();
+  if (sortedDates.length === 0) return;
+
+  const portfolioValues = [];
+  const labels = [];
+
+  sortedDates.forEach(date => {
+    let total = 0;
+    let hasData = false;
+    holdingTickers.forEach(t => {
+      const h = tickerHists[t];
+      if (!h) return;
+      const idx = h.dates.indexOf(date);
+      if (idx === -1) return;
+      hasData = true;
+      // Use time-aware shares for mini chart
+      const shares = getSharesHeldOnDate(t, date);
+      total += shares * h.close[idx];
+    });
+    if (hasData) {
+      portfolioValues.push(total);
+      const d = new Date(date);
+      labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    }
+  });
+
+  if (portfolioValues.length === 0) return;
+
+  const ctx = canvas.getContext('2d');
+  const style = getComputedStyle(document.documentElement);
+  const primaryColor = style.getPropertyValue('--color-primary').trim() || '#4ECDC4';
+  const textColor = style.getPropertyValue('--color-text-muted').trim();
+  const gridColor = style.getPropertyValue('--color-divider').trim();
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, 120);
+  gradient.addColorStop(0, 'rgba(78, 205, 196, 0.18)');
+  gradient.addColorStop(1, 'rgba(78, 205, 196, 0)');
+
+  miniPortfolioChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: portfolioValues,
+        borderColor: primaryColor,
+        backgroundColor: gradient,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        pointHoverRadius: 3,
+        pointHoverBackgroundColor: primaryColor,
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: style.getPropertyValue('--color-surface-2').trim(),
+          titleColor: style.getPropertyValue('--color-text').trim(),
+          bodyColor: textColor,
+          borderColor: style.getPropertyValue('--color-border').trim(),
+          borderWidth: 1,
+          cornerRadius: 6,
+          padding: 8,
+          callbacks: { label: ctx => `$${fmt(ctx.raw)}` },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: textColor, font: { size: 9, family: 'DM Sans' }, maxRotation: 0, maxTicksLimit: 4 },
+          grid: { display: false },
+          border: { display: false },
+        },
+        y: {
+          ticks: { color: textColor, font: { size: 9, family: 'DM Mono' }, callback: v => '$' + fmtCompact(v), maxTicksLimit: 3 },
+          grid: { color: gridColor, lineWidth: 0.5 },
+          border: { display: false },
+        },
+      },
+    },
   });
 }
 
@@ -676,6 +850,9 @@ function renderTimeRange() {
   });
 }
 
+// ============================================
+// FEATURE 8: Portfolio chart with buy/sell timing
+// ============================================
 async function renderPortfolioChart() {
   const canvas = document.getElementById('portfolio-chart');
   if (!canvas) return;
@@ -716,9 +893,20 @@ async function renderPortfolioChart() {
       const idx = h.dates.indexOf(date);
       if (idx === -1) return;
       hasData = true;
-      const shares = portfolio[t].lots.reduce((s, l) => s + l.qty, 0);
+
+      // FEATURE 8: Use time-aware share count
+      const shares = getSharesHeldOnDate(t, date);
       total += shares * h.close[idx];
-      cost += portfolio[t].lots.reduce((s, l) => s + l.qty * l.price, 0);
+
+      // Cost basis: only buy lots on or before this date
+      const data = portfolio[t];
+      if (data && data.lots) {
+        data.lots.forEach(lot => {
+          if ((lot.type || 'buy') === 'buy' && lot.date <= date) {
+            cost += lot.qty * lot.price;
+          }
+        });
+      }
     });
     if (hasData) {
       portfolioValues.push(total);
@@ -832,7 +1020,7 @@ async function renderPredictionChart() {
       if (!h) return;
       const idx = h.dates.indexOf(date);
       if (idx === -1) return;
-      const shares = portfolio[t].lots.reduce((s, l) => s + l.qty, 0);
+      const shares = getSharesHeldOnDate(t, date);
       total += shares * h.close[idx];
     });
     return total;
@@ -1436,28 +1624,52 @@ async function renderDetailContent(ticker, isWatchlist = false) {
   if (!stock) return;
   const holding = portfolio[ticker];
   const content = document.getElementById('detail-content');
-  
+
+  // ============================================
+  // FEATURE 7: Fetch ticker news and check for splits
+  // ============================================
+  let tickerNews = newsCache.filter(n => n.ticker === ticker);
+  if (tickerNews.length === 0) {
+    try {
+      const data = await marketApi('/news', { tickers: ticker });
+      if (data.news && data.news.length > 0) {
+        tickerNews = data.news;
+        // Merge into cache
+        const existingIds = new Set(newsCache.map(n => n.id));
+        data.news.forEach(n => { if (!existingIds.has(n.id)) newsCache.push(n); });
+      }
+    } catch(e) {}
+  }
+
+  // Check for split news
+  const splitNews = tickerNews.filter(n => n.headline && n.headline.toLowerCase().includes('split'));
+
   let lotsHTML = '';
   if (holding && !isWatchlist) {
     const lots = holding.lots;
     lotsHTML = `
       <div class="lot-section">
-        <div class="section-title">Purchase Lots</div>
+        <div class="section-title">Transaction Lots</div>
         <div style="overflow-x:auto;">
           <table class="lot-table">
-            <thead><tr><th>Date</th><th>Shares</th><th>Price</th><th>Value</th><th>P&L</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Shares</th><th>Price</th><th>Value</th><th>P&L</th><th></th></tr></thead>
             <tbody>
               ${lots.map((lot, idx) => {
+                const isSell = (lot.type || 'buy') === 'sell';
                 const val = lot.qty * stock.price;
                 const cost = lot.qty * lot.price;
-                const pnl = val - cost;
-                const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+                const pnl = isSell ? 0 : val - cost;
+                const pnlPct = !isSell && cost > 0 ? (pnl / cost) * 100 : 0;
+                const typeBadge = isSell
+                  ? `<span style="font-size:10px; font-weight:700; color:#EF4444; background:rgba(239,68,68,0.12); padding:2px 6px; border-radius:4px;">SELL</span>`
+                  : `<span style="font-size:10px; font-weight:700; color:#10B981; background:rgba(16,185,129,0.12); padding:2px 6px; border-radius:4px;">BUY</span>`;
                 return `<tr>
                   <td>${lot.date}</td>
+                  <td>${typeBadge}</td>
                   <td>${lot.qty}</td>
                   <td>$${fmt(lot.price)}</td>
-                  <td>$${fmt(val)}</td>
-                  <td class="${colorClass(pnl)}">${sign(pnlPct)}${fmt(Math.abs(pnlPct))}%</td>
+                  <td>${isSell ? '—' : '$' + fmt(val)}</td>
+                  <td class="${isSell ? 'neutral' : colorClass(pnl)}">${isSell ? '—' : sign(pnlPct) + fmt(Math.abs(pnlPct)) + '%'}</td>
                   <td><button class="lot-delete-btn" data-lot-idx="${idx}" data-lot-ticker="${ticker}" aria-label="Delete lot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></td>
                 </tr>`;
               }).join('')}
@@ -1479,19 +1691,42 @@ async function renderDetailContent(ticker, isWatchlist = false) {
   const currentPos = priceRange > 0 ? ((stock.price - stock.ptLow) / priceRange * 100) : 50;
   const avgPos = priceRange > 0 && stock.ptAvg ? ((stock.ptAvg - stock.ptLow) / priceRange * 100) : 50;
 
-  // Fetch news for this specific ticker
-  let tickerNews = newsCache.filter(n => n.ticker === ticker);
-  if (tickerNews.length === 0) {
-    try {
-      const data = await marketApi('/news', { tickers: ticker });
-      if (data.news && data.news.length > 0) {
-        tickerNews = data.news;
-        // Merge into cache
-        const existingIds = new Set(newsCache.map(n => n.id));
-        data.news.forEach(n => { if (!existingIds.has(n.id)) newsCache.push(n); });
-      }
-    } catch(e) {}
-  }
+  // ============================================
+  // FEATURE 5 & 6: Chart legend for dual lines + transaction markers
+  // ============================================
+  const inPortfolio = !!(holding && !isWatchlist);
+  const chartLegendHTML = `
+    <div style="display:flex; gap:var(--space-3); flex-wrap:wrap; margin-top:var(--space-2); font-size:11px; color:var(--color-text-muted);">
+      <span style="display:flex; align-items:center; gap:4px;">
+        <span style="width:16px; height:2px; background:#4ECDC4; display:inline-block; border-radius:1px;"></span> Price
+      </span>
+      ${inPortfolio ? `
+      <span style="display:flex; align-items:center; gap:4px;">
+        <span style="width:16px; height:2px; background:#F59E0B; display:inline-block; border-radius:1px;"></span> Holdings Value
+      </span>
+      <span style="display:flex; align-items:center; gap:4px;">
+        <span style="width:8px; height:8px; background:#10B981; border-radius:50%; display:inline-block;"></span> Buy
+      </span>
+      <span style="display:flex; align-items:center; gap:4px;">
+        <span style="width:8px; height:8px; background:#EF4444; border-radius:50%; display:inline-block;"></span> Sell
+      </span>` : ''}
+      ${splitNews.length > 0 ? `
+      <span style="display:flex; align-items:center; gap:4px;">
+        <span style="width:1px; height:12px; background:#A78BFA; display:inline-block;"></span> Split
+      </span>` : ''}
+    </div>
+  `;
+
+  // ============================================
+  // FEATURE 2: Remove Stock button
+  // ============================================
+  const removeStockHTML = (holding && !isWatchlist) ? `
+    <div style="margin-top:var(--space-5); padding-top:var(--space-4); border-top:1px solid var(--color-divider);">
+      <button class="btn-danger" id="remove-stock-btn" data-ticker="${ticker}" style="width:100%; padding:var(--space-3); border-radius:var(--radius-lg); background:rgba(239,68,68,0.12); color:#EF4444; border:1px solid rgba(239,68,68,0.25); font-weight:600; font-size:13px; cursor:pointer; transition:background 150ms;">
+        Remove ${ticker} from Portfolio
+      </button>
+    </div>
+  ` : '';
 
   content.innerHTML = `
     <div class="detail-price-hero">
@@ -1510,6 +1745,7 @@ async function renderDetailContent(ticker, isWatchlist = false) {
       <div class="chart-wrapper" style="height:220px;">
         <canvas id="detail-price-chart"></canvas>
       </div>
+      ${chartLegendHTML}
     </div>
 
     <div class="section-title mt-4">Key Stats</div>
@@ -1574,10 +1810,12 @@ async function renderDetailContent(ticker, isWatchlist = false) {
         </div>
       `).join('')}
     </div>` : ''}
+
+    ${removeStockHTML}
   `;
 
   renderDetailTimeRange(ticker);
-  await renderDetailChart(ticker);
+  await renderDetailChart(ticker, isWatchlist, tickerNews);
   await renderDetailPrediction(ticker);
 
   // Lot delete handlers
@@ -1605,6 +1843,22 @@ async function renderDetailContent(ticker, isWatchlist = false) {
       document.getElementById('add-stock-modal').classList.add('open');
     });
   }
+
+  // ============================================
+  // FEATURE 2: Remove stock button handler
+  // ============================================
+  const removeBtn = content.querySelector('#remove-stock-btn');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', () => {
+      const t = removeBtn.dataset.ticker;
+      if (confirm(`Remove ${t} from your portfolio? This will delete all lots for this stock.`)) {
+        delete portfolio[t];
+        savePortfolio();
+        closeStockDetail();
+        renderPortfolioView();
+      }
+    });
+  }
 }
 
 function renderDetailTimeRange(ticker) {
@@ -1621,12 +1875,18 @@ function renderDetailTimeRange(ticker) {
     btn.addEventListener('click', () => {
       detailRange = btn.dataset.range;
       renderDetailTimeRange(ticker);
-      renderDetailChart(ticker);
+      // Re-fetch news for markers
+      const tNews = newsCache.filter(n => n.ticker === ticker);
+      renderDetailChart(ticker, !!watchlist.includes(ticker), tNews);
     });
   });
 }
 
-async function renderDetailChart(ticker) {
+// ============================================
+// FEATURE 5, 6, 7: Enhanced detail chart
+// Dual-line (price + holdings value), transaction markers, split/news indicators
+// ============================================
+async function renderDetailChart(ticker, isWatchlistItem = false, tickerNews = []) {
   const canvas = document.getElementById('detail-price-chart');
   if (!canvas) return;
   if (detailChart) { detailChart.destroy(); detailChart = null; }
@@ -1645,7 +1905,7 @@ async function renderDetailChart(ticker) {
   
   const ctx = canvas.getContext('2d');
   const style = getComputedStyle(document.documentElement);
-  const primaryColor = style.getPropertyValue('--color-primary').trim();
+  const primaryColor = style.getPropertyValue('--color-primary').trim() || '#4ECDC4';
   const textColor = style.getPropertyValue('--color-text-muted').trim();
   const gridColor = style.getPropertyValue('--color-divider').trim();
 
@@ -1653,18 +1913,197 @@ async function renderDetailChart(ticker) {
   gradient.addColorStop(0, 'rgba(78, 205, 196, 0.15)');
   gradient.addColorStop(1, 'rgba(78, 205, 196, 0)');
 
+  const inPortfolio = !!(portfolio[ticker] && !isWatchlistItem);
+  const holding = portfolio[ticker];
+
+  // Base datasets: price line
+  const datasets = [{
+    label: 'Price',
+    data: hist.close,
+    borderColor: primaryColor,
+    backgroundColor: gradient,
+    fill: true,
+    tension: 0.3,
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    pointHoverBackgroundColor: primaryColor,
+    borderWidth: 2,
+  }];
+
+  // ============================================
+  // FEATURE 5: Holdings value line
+  // ============================================
+  if (inPortfolio && holding) {
+    const holdingsValue = hist.dates.map(date => {
+      const shares = getSharesHeldOnDate(ticker, date);
+      const idx = hist.dates.indexOf(date);
+      return shares > 0 ? shares * hist.close[idx] : null;
+    });
+
+    datasets.push({
+      label: 'Holdings Value',
+      data: holdingsValue,
+      borderColor: '#F59E0B',
+      backgroundColor: 'transparent',
+      fill: false,
+      tension: 0.3,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      pointHoverBackgroundColor: '#F59E0B',
+      borderWidth: 2,
+      spanGaps: true,
+    });
+  }
+
+  // ============================================
+  // FEATURE 6: Transaction marker datasets
+  // ============================================
+  if (inPortfolio && holding && holding.lots) {
+    const buyData = hist.dates.map((date, i) => {
+      const lotsOnDate = holding.lots.filter(l => l.date === date && (l.type || 'buy') === 'buy');
+      if (lotsOnDate.length > 0) return hist.close[i];
+      return null;
+    });
+
+    const sellData = hist.dates.map((date, i) => {
+      const lotsOnDate = holding.lots.filter(l => l.date === date && l.type === 'sell');
+      if (lotsOnDate.length > 0) return hist.close[i];
+      return null;
+    });
+
+    // Buy markers dataset
+    datasets.push({
+      label: 'Buy',
+      data: buyData,
+      borderColor: 'transparent',
+      backgroundColor: '#10B981',
+      fill: false,
+      showLine: false,
+      pointRadius: hist.dates.map((date) => {
+        return holding.lots.some(l => l.date === date && (l.type || 'buy') === 'buy') ? 7 : 0;
+      }),
+      pointHoverRadius: 9,
+      pointStyle: 'circle',
+      pointBackgroundColor: '#10B981',
+      pointBorderColor: '#fff',
+      pointBorderWidth: 2,
+    });
+
+    // Sell markers dataset
+    datasets.push({
+      label: 'Sell',
+      data: sellData,
+      borderColor: 'transparent',
+      backgroundColor: '#EF4444',
+      fill: false,
+      showLine: false,
+      pointRadius: hist.dates.map((date) => {
+        return holding.lots.some(l => l.date === date && l.type === 'sell') ? 7 : 0;
+      }),
+      pointHoverRadius: 9,
+      pointStyle: 'circle',
+      pointBackgroundColor: '#EF4444',
+      pointBorderColor: '#fff',
+      pointBorderWidth: 2,
+    });
+  }
+
+  // ============================================
+  // FEATURE 7: News/split markers
+  // Top 3 recent news items within chart date range
+  // ============================================
+  const chartStartDate = hist.dates[0];
+  const chartEndDate = hist.dates[hist.dates.length - 1];
+
+  const newsInRange = (tickerNews || []).filter(n => {
+    if (!n.pubDate) return false;
+    const pubDateStr = new Date(n.pubDate).toISOString().split('T')[0];
+    return pubDateStr >= chartStartDate && pubDateStr <= chartEndDate;
+  });
+
+  // Top 3 most recent news events
+  const topNews = newsInRange
+    .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+    .slice(0, 3);
+
+  if (topNews.length > 0) {
+    const newsData = hist.dates.map((date, i) => {
+      const hasNews = topNews.some(n => {
+        const pubDateStr = new Date(n.pubDate).toISOString().split('T')[0];
+        return pubDateStr === date;
+      });
+      return hasNews ? hist.close[i] * 1.02 : null; // slightly above price line
+    });
+
+    const newsRadii = hist.dates.map(date => {
+      return topNews.some(n => {
+        const pubDateStr = new Date(n.pubDate).toISOString().split('T')[0];
+        return pubDateStr === date;
+      }) ? 5 : 0;
+    });
+
+    datasets.push({
+      label: 'News',
+      data: newsData,
+      borderColor: 'transparent',
+      backgroundColor: '#A78BFA',
+      fill: false,
+      showLine: false,
+      pointRadius: newsRadii,
+      pointHoverRadius: 7,
+      pointStyle: 'rectRot', // diamond shape
+      pointBackgroundColor: '#A78BFA',
+      pointBorderColor: '#fff',
+      pointBorderWidth: 1,
+    });
+  }
+
+  // Split event markers (vertical line effect via separate dataset)
+  const splitNews = (tickerNews || []).filter(n =>
+    n.headline && n.headline.toLowerCase().includes('split') &&
+    n.pubDate && new Date(n.pubDate).toISOString().split('T')[0] >= chartStartDate &&
+    new Date(n.pubDate).toISOString().split('T')[0] <= chartEndDate
+  );
+
+  if (splitNews.length > 0) {
+    const splitData = hist.dates.map((date, i) => {
+      const hasSplit = splitNews.some(n => {
+        const pubDateStr = new Date(n.pubDate).toISOString().split('T')[0];
+        return pubDateStr === date;
+      });
+      return hasSplit ? hist.close[i] : null;
+    });
+
+    datasets.push({
+      label: 'Split',
+      data: splitData,
+      borderColor: '#A78BFA',
+      borderDash: [4, 4],
+      backgroundColor: 'rgba(167,139,250,0.3)',
+      fill: false,
+      showLine: false,
+      pointRadius: hist.dates.map(date => {
+        return splitNews.some(n => {
+          const pubDateStr = new Date(n.pubDate).toISOString().split('T')[0];
+          return pubDateStr === date;
+        }) ? 8 : 0;
+      }),
+      pointHoverRadius: 10,
+      pointStyle: 'triangle',
+      pointBackgroundColor: '#A78BFA',
+      pointBorderColor: '#fff',
+      pointBorderWidth: 2,
+      borderWidth: 1,
+    });
+  }
+
   detailChart = new Chart(ctx, {
     type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data: hist.close,
-        borderColor: primaryColor, backgroundColor: gradient, fill: true,
-        tension: 0.3, pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: primaryColor, borderWidth: 2,
-      }],
-    },
+    data: { labels, datasets },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -1672,13 +2111,51 @@ async function renderDetailChart(ticker) {
           titleColor: style.getPropertyValue('--color-text').trim(),
           bodyColor: textColor,
           borderColor: style.getPropertyValue('--color-border').trim(),
-          borderWidth: 1, cornerRadius: 8, padding: 10,
-          callbacks: { label: ctx => `$${fmt(ctx.raw)}` },
+          borderWidth: 1,
+          cornerRadius: 8,
+          padding: 10,
+          filter: (item) => {
+            // Hide datasets with null values at this point from tooltip
+            return item.raw !== null && item.raw !== undefined;
+          },
+          callbacks: {
+            label: (ctx) => {
+              const dsLabel = ctx.dataset.label;
+              if (dsLabel === 'Price') return `Price: $${fmt(ctx.raw)}`;
+              if (dsLabel === 'Holdings Value') return `Holdings: $${fmt(ctx.raw)}`;
+              if (dsLabel === 'Buy') {
+                // Find matching lot(s)
+                const date = hist.dates[ctx.dataIndex];
+                const lots = holding?.lots?.filter(l => l.date === date && (l.type || 'buy') === 'buy') || [];
+                return lots.map(l => `Bought ${l.qty} shares @ $${fmt(l.price)}`);
+              }
+              if (dsLabel === 'Sell') {
+                const date = hist.dates[ctx.dataIndex];
+                const lots = holding?.lots?.filter(l => l.date === date && l.type === 'sell') || [];
+                return lots.map(l => `Sold ${l.qty} shares @ $${fmt(l.price)}`);
+              }
+              if (dsLabel === 'News') {
+                const date = hist.dates[ctx.dataIndex];
+                const item = topNews.find(n => new Date(n.pubDate).toISOString().split('T')[0] === date);
+                return item ? `News: ${item.headline.slice(0, 50)}...` : 'News Event';
+              }
+              if (dsLabel === 'Split') return 'Stock Split';
+              return `${dsLabel}: $${fmt(ctx.raw)}`;
+            },
+          },
         },
       },
       scales: {
-        x: { ticks: { color: textColor, font: { size: 9, family: 'DM Sans' }, maxRotation: 0, maxTicksLimit: 5 }, grid: { display: false }, border: { display: false } },
-        y: { ticks: { color: textColor, font: { size: 9, family: 'DM Mono' }, callback: v => '$' + fmt(v, 0) }, grid: { color: gridColor, lineWidth: 0.5 }, border: { display: false } },
+        x: {
+          ticks: { color: textColor, font: { size: 9, family: 'DM Sans' }, maxRotation: 0, maxTicksLimit: 5 },
+          grid: { display: false },
+          border: { display: false },
+        },
+        y: {
+          ticks: { color: textColor, font: { size: 9, family: 'DM Mono' }, callback: v => '$' + fmt(v, 0) },
+          grid: { color: gridColor, lineWidth: 0.5 },
+          border: { display: false },
+        },
       },
     },
   });
@@ -1745,12 +2222,82 @@ document.getElementById('fab-add')?.addEventListener('click', openAddStockModal)
 
 function openAddStockModal() {
   selectedAddTicker = null;
+  selectedTxType = 'buy';
   document.getElementById('stock-search-input').value = '';
   document.getElementById('stock-search-results').classList.remove('visible');
   document.getElementById('add-lot-form').style.display = 'none';
   document.getElementById('stock-search-input').parentElement.style.display = 'block';
   document.getElementById('add-stock-modal').classList.add('open');
   setTimeout(() => document.getElementById('stock-search-input').focus(), 300);
+  // Reset toggle state when modal opens
+  updateTxTypeToggle();
+}
+
+// ============================================
+// FEATURE 3: Transaction type toggle
+// ============================================
+function updateTxTypeToggle() {
+  const toggleContainer = document.getElementById('tx-type-toggle');
+  if (!toggleContainer) return;
+
+  const buyBtn = toggleContainer.querySelector('[data-type="buy"]');
+  const sellBtn = toggleContainer.querySelector('[data-type="sell"]');
+  if (!buyBtn || !sellBtn) return;
+
+  if (selectedTxType === 'buy') {
+    buyBtn.style.cssText = `
+      flex:1; padding:7px 0; border:none; border-radius:6px; font-size:12px; font-weight:700;
+      cursor:pointer; background:rgba(16,185,129,0.2); color:#10B981; transition:all 150ms;
+    `;
+    sellBtn.style.cssText = `
+      flex:1; padding:7px 0; border:none; border-radius:6px; font-size:12px; font-weight:600;
+      cursor:pointer; background:transparent; color:var(--color-text-muted); transition:all 150ms;
+    `;
+  } else {
+    sellBtn.style.cssText = `
+      flex:1; padding:7px 0; border:none; border-radius:6px; font-size:12px; font-weight:700;
+      cursor:pointer; background:rgba(239,68,68,0.2); color:#EF4444; transition:all 150ms;
+    `;
+    buyBtn.style.cssText = `
+      flex:1; padding:7px 0; border:none; border-radius:6px; font-size:12px; font-weight:600;
+      cursor:pointer; background:transparent; color:var(--color-text-muted); transition:all 150ms;
+    `;
+  }
+
+  // Tint the form background based on type
+  const addLotForm = document.getElementById('add-lot-form');
+  if (addLotForm) {
+    addLotForm.style.borderColor = selectedTxType === 'sell' ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)';
+  }
+}
+
+// Inject the toggle into the add-lot form HTML
+// We do this by hooking into when the form becomes visible
+function ensureTxTypeToggleExists() {
+  const form = document.getElementById('add-lot-form');
+  if (!form) return;
+  if (document.getElementById('tx-type-toggle')) return; // already injected
+
+  const toggle = document.createElement('div');
+  toggle.id = 'tx-type-toggle';
+  toggle.style.cssText = `
+    display:flex; gap:4px; background:var(--color-surface-offset,rgba(255,255,255,0.06));
+    border-radius:8px; padding:4px; margin-bottom:var(--space-3,12px);
+  `;
+  toggle.innerHTML = `
+    <button class="tx-type-btn" data-type="buy" style="flex:1; padding:7px 0; border:none; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; background:rgba(16,185,129,0.2); color:#10B981; transition:all 150ms;">Buy</button>
+    <button class="tx-type-btn" data-type="sell" style="flex:1; padding:7px 0; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; background:transparent; color:var(--color-text-muted); transition:all 150ms;">Sell</button>
+  `;
+
+  // Insert as the first child of the form
+  form.insertBefore(toggle, form.firstChild);
+
+  toggle.querySelectorAll('.tx-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedTxType = btn.dataset.type;
+      updateTxTypeToggle();
+    });
+  });
 }
 
 // Close modals on backdrop click
@@ -1801,12 +2348,17 @@ document.getElementById('stock-search-input')?.addEventListener('input', (e) => 
         document.getElementById('stock-search-input').parentElement.style.display = 'none';
         document.getElementById('lot-price').value = price ? price.toFixed(2) : '';
         results.classList.remove('visible');
+
+        // Inject toggle + reset tx type
+        selectedTxType = 'buy';
+        ensureTxTypeToggleExists();
+        updateTxTypeToggle();
       });
     });
   }, 300);
 });
 
-// Add lot
+// Add lot — now includes type
 document.getElementById('add-lot-btn')?.addEventListener('click', async () => {
   if (!selectedAddTicker) return;
   const date = document.getElementById('lot-date').value;
@@ -1818,7 +2370,8 @@ document.getElementById('add-lot-btn')?.addEventListener('click', async () => {
   if (!portfolio[selectedAddTicker]) {
     portfolio[selectedAddTicker] = { lots: [] };
   }
-  portfolio[selectedAddTicker].lots.push({ date, qty, price });
+  // FEATURE 3: Include type field
+  portfolio[selectedAddTicker].lots.push({ date, qty, price, type: selectedTxType });
   savePortfolio();
   
   // Fetch quote for the new ticker if needed
@@ -1832,6 +2385,9 @@ document.getElementById('add-lot-btn')?.addEventListener('click', async () => {
   document.getElementById('add-stock-modal').classList.remove('open');
   document.getElementById('lot-qty').value = '';
   document.getElementById('lot-price').value = '';
+
+  // Reset type for next use
+  selectedTxType = 'buy';
   
   renderPortfolioView();
 });
