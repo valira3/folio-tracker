@@ -1,0 +1,13 @@
+.cache/
+folio.db
+*.pyc
+__pycache__
+.git
+.gitignore
+*.md
+DEPLOYMENT_GUIDE.pdf
+cgi-bin/
+setup_selfhost.sh
+docker-compose.yml
+.gcloudignore
+cloudbuild.yaml

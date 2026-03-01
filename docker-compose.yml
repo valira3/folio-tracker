@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  folio:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - folio-data:/app/folio.db
+      - folio-cache:/app/.cache
+    restart: unless-stopped
+    environment:
+      - FOLIO_DB_PATH=/app/folio.db
+
+volumes:
+  folio-data:
+  folio-cache:
