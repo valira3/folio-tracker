@@ -20,4 +20,4 @@ ENV FOLIO_DB_PATH=/data/folio.db
 EXPOSE 8080
 
 # Run with gunicorn
-CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:${PORT} --timeout 120 --graceful-timeout 30 app_server:app"]
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:8080", "--timeout", "120", "--graceful-timeout", "30", "app_server:app"]
