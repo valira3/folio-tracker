@@ -73,6 +73,14 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     """)
     db.commit()
     db.close()
@@ -195,6 +203,80 @@ def me():
     if not user:
         return jsonify({"error": "Not authenticated"}), 401
     return jsonify({"user": {"id": user["id"], "email": user["email"], "name": user["name"]}})
+
+# ---------------------
+# Password Reset API
+# ---------------------
+
+import random
+
+RESET_CODE_EXPIRY = 600  # 10 minutes
+
+@app.route('/api/forgot-password', methods=['POST'])
+def forgot_password():
+    body = request.get_json() or {}
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+    db = get_db()
+    user = db.execute("SELECT id, email FROM users WHERE email = ?", [email]).fetchone()
+    if not user:
+        db.close()
+        # Don't reveal whether the email exists — return success either way
+        return jsonify({"ok": True, "message": "If an account exists with that email, a reset code has been generated."})
+    # Invalidate any previous unused codes for this user
+    db.execute("UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0", [user["id"]])
+    # Generate 6-digit code
+    code = f"{random.randint(0, 999999):06d}"
+    db.execute("INSERT INTO password_resets (user_id, code, created_at) VALUES (?, ?, ?)",
+               [user["id"], code, time.time()])
+    db.commit()
+    db.close()
+    # In production, send this code via email. For now, return it in the response.
+    # TODO: integrate with SendGrid/Resend to email the code
+    return jsonify({"ok": True, "message": "If an account exists with that email, a reset code has been generated.", "_code": code})
+
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    body = request.get_json() or {}
+    email = (body.get("email") or "").strip().lower()
+    code = (body.get("code") or "").strip()
+    new_password = body.get("new_password") or ""
+    if not email or not code or not new_password:
+        return jsonify({"error": "Email, code, and new password are required"}), 400
+    if len(new_password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
+    db = get_db()
+    user = db.execute("SELECT id FROM users WHERE email = ?", [email]).fetchone()
+    if not user:
+        db.close()
+        return jsonify({"error": "Invalid reset code"}), 400
+    reset = db.execute(
+        "SELECT id, code, created_at FROM password_resets WHERE user_id = ? AND used = 0 ORDER BY created_at DESC LIMIT 1",
+        [user["id"]]
+    ).fetchone()
+    if not reset:
+        db.close()
+        return jsonify({"error": "Invalid or expired reset code"}), 400
+    # Check expiry
+    if time.time() - reset["created_at"] > RESET_CODE_EXPIRY:
+        db.execute("UPDATE password_resets SET used = 1 WHERE id = ?", [reset["id"]])
+        db.commit()
+        db.close()
+        return jsonify({"error": "Reset code has expired. Please request a new one."}), 400
+    # Check code
+    if reset["code"] != code:
+        db.close()
+        return jsonify({"error": "Invalid reset code"}), 400
+    # Update password and mark code as used
+    pw_hash = hash_password(new_password)
+    db.execute("UPDATE users SET password_hash = ? WHERE id = ?", [pw_hash, user["id"]])
+    db.execute("UPDATE password_resets SET used = 1 WHERE id = ?", [reset["id"]])
+    # Invalidate all sessions (force re-login with new password)
+    db.execute("DELETE FROM sessions WHERE user_id = ?", [user["id"]])
+    db.commit()
+    db.close()
+    return jsonify({"ok": True, "message": "Password has been reset. Please sign in with your new password."})
 
 @app.route('/api/portfolio', methods=['GET', 'POST'])
 def portfolio_route():
