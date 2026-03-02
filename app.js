@@ -110,7 +110,18 @@ function showAuthScreen() {
   const userDisp = document.getElementById('user-display');
   if (userDisp) userDisp.style.display = 'none';
   const authError = document.getElementById('auth-error');
-  if (authError) authError.textContent = '';
+  if (authError) { authError.textContent = ''; authError.style.color = ''; }
+  // Reset to login form, hide forgot/reset forms
+  const loginForm = document.getElementById('login-form');
+  const signupForm = document.getElementById('signup-form');
+  const forgotForm = document.getElementById('forgot-form');
+  const resetForm = document.getElementById('reset-form');
+  const authTabs = document.querySelector('.auth-tabs');
+  if (loginForm) loginForm.style.display = 'block';
+  if (signupForm) signupForm.style.display = 'none';
+  if (forgotForm) forgotForm.style.display = 'none';
+  if (resetForm) resetForm.style.display = 'none';
+  if (authTabs) authTabs.style.display = 'flex';
   initialized = false;
 }
 
@@ -137,22 +148,38 @@ function initAuthUI() {
   const signupTab = document.getElementById('auth-tab-signup');
   const loginForm = document.getElementById('login-form');
   const signupForm = document.getElementById('signup-form');
+  const forgotForm = document.getElementById('forgot-form');
+  const resetForm = document.getElementById('reset-form');
   const authError = document.getElementById('auth-error');
+  const authTabs = document.querySelector('.auth-tabs');
+
+  // Track email across forgot -> reset flow
+  let resetEmail = '';
+
+  // Helper: show one auth form, hide others
+  function showAuthForm(formId) {
+    [loginForm, signupForm, forgotForm, resetForm].forEach(f => {
+      if (f) f.style.display = 'none';
+    });
+    const target = document.getElementById(formId);
+    if (target) target.style.display = 'block';
+    authError.textContent = '';
+    // Hide tabs on forgot/reset screens
+    if (authTabs) {
+      authTabs.style.display = (formId === 'forgot-form' || formId === 'reset-form') ? 'none' : 'flex';
+    }
+  }
 
   loginTab?.addEventListener('click', () => {
     loginTab.classList.add('active');
     signupTab.classList.remove('active');
-    loginForm.style.display = 'block';
-    signupForm.style.display = 'none';
-    authError.textContent = '';
+    showAuthForm('login-form');
   });
 
   signupTab?.addEventListener('click', () => {
     signupTab.classList.add('active');
     loginTab.classList.remove('active');
-    signupForm.style.display = 'block';
-    loginForm.style.display = 'none';
-    authError.textContent = '';
+    showAuthForm('signup-form');
   });
 
   document.getElementById('login-btn')?.addEventListener('click', async () => {
@@ -198,6 +225,112 @@ function initAuthUI() {
     if (e.key === 'Enter') document.getElementById('signup-btn')?.click();
   });
   document.getElementById('logout-btn')?.addEventListener('click', logout);
+
+  // ============================================
+  // Forgot Password flow
+  // ============================================
+
+  document.getElementById('forgot-password-link')?.addEventListener('click', () => {
+    showAuthForm('forgot-form');
+    // Pre-fill email if they already typed it in the login form
+    const loginEmail = document.getElementById('login-email')?.value?.trim();
+    if (loginEmail) document.getElementById('forgot-email').value = loginEmail;
+  });
+
+  document.getElementById('back-to-login-link')?.addEventListener('click', () => {
+    loginTab.classList.add('active');
+    signupTab.classList.remove('active');
+    showAuthForm('login-form');
+  });
+
+  document.getElementById('back-to-login-link-2')?.addEventListener('click', () => {
+    loginTab.classList.add('active');
+    signupTab.classList.remove('active');
+    showAuthForm('login-form');
+  });
+
+  document.getElementById('forgot-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('forgot-btn');
+    const email = document.getElementById('forgot-email').value.trim();
+    authError.textContent = '';
+    if (!email) { authError.textContent = 'Please enter your email'; return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="auth-spinner"></span> Sending...';
+    try {
+      const res = await fetch(`${API_BASE}/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      resetEmail = email;
+      // Show the code in a success message (until email integration is added)
+      if (data._code) {
+        authError.style.color = 'var(--color-primary)';
+        authError.textContent = `Your reset code: ${data._code}`;
+      }
+      showAuthForm('reset-form');
+      // Keep the code message visible on the reset form
+      if (data._code) {
+        authError.style.color = 'var(--color-primary)';
+        authError.textContent = `Your reset code: ${data._code}`;
+      }
+    } catch(e) {
+      authError.style.color = '';
+      authError.textContent = e.message;
+    }
+    finally { btn.disabled = false; btn.textContent = 'Send Reset Code'; }
+  });
+
+  document.getElementById('forgot-email')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('forgot-btn')?.click();
+  });
+
+  document.getElementById('reset-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('reset-btn');
+    const code = document.getElementById('reset-code').value.trim();
+    const newPassword = document.getElementById('reset-password').value;
+    const confirmPassword = document.getElementById('reset-password-confirm').value;
+    authError.style.color = '';
+    authError.textContent = '';
+    if (!code) { authError.textContent = 'Please enter the 6-digit code'; return; }
+    if (!newPassword) { authError.textContent = 'Please enter a new password'; return; }
+    if (newPassword.length < 6) { authError.textContent = 'Password must be at least 6 characters'; return; }
+    if (newPassword !== confirmPassword) { authError.textContent = 'Passwords do not match'; return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="auth-spinner"></span> Resetting...';
+    try {
+      const res = await fetch(`${API_BASE}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail, code, new_password: newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Reset failed');
+      // Success — go back to login
+      authError.style.color = 'var(--color-positive)';
+      authError.textContent = data.message || 'Password reset. Please sign in.';
+      showAuthForm('login-form');
+      // Keep the success message visible
+      authError.style.color = 'var(--color-positive)';
+      authError.textContent = data.message || 'Password reset. Please sign in.';
+      // Pre-fill email
+      const loginEmailEl = document.getElementById('login-email');
+      if (loginEmailEl) loginEmailEl.value = resetEmail;
+    } catch(e) {
+      authError.style.color = '';
+      authError.textContent = e.message;
+    }
+    finally { btn.disabled = false; btn.textContent = 'Reset Password'; }
+  });
+
+  document.getElementById('reset-code')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('reset-password')?.focus();
+  });
+  document.getElementById('reset-password-confirm')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('reset-btn')?.click();
+  });
 }
 
 // ============================================
