@@ -53,6 +53,41 @@
           <input type="password" class="form-input" id="login-password" placeholder="Enter your password" autocomplete="current-password">
         </div>
         <button class="btn-primary auth-submit" id="login-btn">Sign In</button>
+        <div style="text-align:center; margin-top:var(--space-3);">
+          <button type="button" class="auth-link" id="forgot-password-link" style="background:none; border:none; color:var(--color-primary); cursor:pointer; font-size:13px; font-family:inherit; text-decoration:underline; opacity:0.85;">Forgot your password?</button>
+        </div>
+      </div>
+
+      <div class="auth-form" id="forgot-form" style="display:none;">
+        <p style="font-size:13px; color:var(--color-text-muted); margin-bottom:var(--space-4); line-height:1.5;">Enter your email and we'll send you a 6-digit reset code.</p>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" class="form-input" id="forgot-email" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <button class="btn-primary auth-submit" id="forgot-btn">Send Reset Code</button>
+        <div style="text-align:center; margin-top:var(--space-3);">
+          <button type="button" class="auth-link" id="back-to-login-link" style="background:none; border:none; color:var(--color-text-muted); cursor:pointer; font-size:13px; font-family:inherit;">&larr; Back to Sign In</button>
+        </div>
+      </div>
+
+      <div class="auth-form" id="reset-form" style="display:none;">
+        <p style="font-size:13px; color:var(--color-text-muted); margin-bottom:var(--space-4); line-height:1.5;">Enter the 6-digit code and your new password.</p>
+        <div class="form-group">
+          <label class="form-label">Reset Code</label>
+          <input type="text" class="form-input" id="reset-code" placeholder="000000" maxlength="6" autocomplete="one-time-code" style="letter-spacing:0.3em; text-align:center; font-family:'DM Mono',monospace; font-size:18px;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">New Password</label>
+          <input type="password" class="form-input" id="reset-password" placeholder="6+ characters" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirm Password</label>
+          <input type="password" class="form-input" id="reset-password-confirm" placeholder="Re-enter new password" autocomplete="new-password">
+        </div>
+        <button class="btn-primary auth-submit" id="reset-btn">Reset Password</button>
+        <div style="text-align:center; margin-top:var(--space-3);">
+          <button type="button" class="auth-link" id="back-to-login-link-2" style="background:none; border:none; color:var(--color-text-muted); cursor:pointer; font-size:13px; font-family:inherit;">&larr; Back to Sign In</button>
+        </div>
       </div>
 
       <div class="auth-form" id="signup-form" style="display:none;">
