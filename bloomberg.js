@@ -1675,11 +1675,9 @@ function computePortfolioMetrics(port, quotes, history, sp500History) {
 }
 
 function computePortfolioDailyReturns(holdingData, history) {
-  // Build a matrix of daily returns weighted by portfolio weight
   const tickers = Object.keys(holdingData);
   if (tickers.length === 0) return [];
 
-  // Find shortest history
   let minLen = Infinity;
   for (const t of tickers) {
     const h = history[t];
@@ -1744,7 +1742,6 @@ function computeMaxDrawdown(returns) {
 }
 
 function computeSectorAllocation(holdingData, quotes) {
-  // Use sector info from quotes if available, else use static mapping
   const sectorMap = {
     AAPL:'Technology', MSFT:'Technology', GOOGL:'Technology', GOOG:'Technology',
     META:'Technology', AMZN:'Consumer Disc.', TSLA:'Consumer Disc.',
@@ -1772,7 +1769,6 @@ function computeSectorAllocation(holdingData, quotes) {
     sectors[sector] = (sectors[sector] || 0) + data.value;
   }
 
-  // Convert to percentages
   const total = Object.values(sectors).reduce((a, b) => a + b, 0);
   const result = {};
   for (const [s, v] of Object.entries(sectors)) {
@@ -1886,29 +1882,20 @@ function renderAnalyticsDashboard(container, metrics, quotes) {
       </div>
     </div>`;
 
-  // Render sector allocation donut
   renderSectorAllocation(document.getElementById('analytics-sector'), metrics);
-
-  // Render attribution table
   renderPerformanceAttribution(document.getElementById('analytics-attribution'), metrics);
-
-  // Render stress tests
   renderStressTests(document.getElementById('analytics-stress'), metrics);
-
-  // Render diversification
   renderDiversificationScore(document.getElementById('analytics-div-score'), metrics);
 }
 
 function renderRiskMetrics(metrics) {
   const { beta, vol, sharpe, maxDD } = metrics;
-
   const items = [
     { label: 'Beta', value: beta.toFixed(2), desc: 'vs S&P 500 (6mo)' },
     { label: 'Ann. Volatility', value: vol.toFixed(1) + '%', desc: '6-month rolling' },
     { label: 'Sharpe Ratio', value: sharpe.toFixed(2), desc: 'RF rate 5%' },
     { label: 'Max Drawdown', value: '-' + maxDD.toFixed(1) + '%', desc: '6-month period' },
   ];
-
   return items.map(item => `
     <div class="risk-metric-item">
       <div class="risk-metric-label">${item.label}</div>
@@ -1925,7 +1912,6 @@ function renderBenchmarkBars(portfolioPct, sp500Pct) {
   const sp500Color  = sp500Pct   >= 0 ? 'var(--color-positive)' : 'var(--color-negative)';
   const portSign    = portfolioPct >= 0 ? '+' : '';
   const sp500Sign   = sp500Pct   >= 0 ? '+' : '';
-
   return `
     <div class="benchmark-bar-wrap">
       <div class="benchmark-bar-row">
@@ -1948,15 +1934,11 @@ function renderBenchmarkBars(portfolioPct, sp500Pct) {
 function renderSectorAllocation(container, metrics) {
   if (!container) return;
   const { sectorAlloc, totalValue } = metrics;
-  const sectors = Object.entries(sectorAlloc)
-    .sort((a, b) => b[1].value - a[1].value);
-
+  const sectors = Object.entries(sectorAlloc).sort((a, b) => b[1].value - a[1].value);
   const SECTOR_COLORS = [
     '#4ECDC4','#5B9CF6','#A78BFA','#F5C542','#FF9F43',
     '#FF6B6B','#00D68F','#26C5F3','#FF7EB3','#6FCF97','#828DF8'
   ];
-
-  // Render donut via Chart.js
   const wrapper = document.createElement('div');
   wrapper.className = 'sector-donut-wrapper';
   wrapper.innerHTML = `
@@ -1969,7 +1951,6 @@ function renderSectorAllocation(container, metrics) {
     </div>
     <div class="sector-legend-list" id="analytics-sector-legend"></div>`;
   container.appendChild(wrapper);
-
   const canvas = document.getElementById('analytics-sector-donut');
   if (canvas) {
     destroyChart('sectorDonutChart');
@@ -2000,8 +1981,6 @@ function renderSectorAllocation(container, metrics) {
       }
     });
   }
-
-  // Legend
   const legendEl = document.getElementById('analytics-sector-legend');
   if (legendEl) {
     legendEl.innerHTML = sectors.slice(0, 8).map(([name, data], i) => `
@@ -2017,7 +1996,6 @@ function renderPerformanceAttribution(container, metrics) {
   if (!container) return;
   const { attribution } = metrics;
   const maxContrib = Math.max(...attribution.map(a => Math.abs(a.contribution)), 0.01);
-
   container.innerHTML = `
     <div style="overflow-x:auto;">
       <table class="attribution-table">
@@ -2033,8 +2011,6 @@ function renderPerformanceAttribution(container, metrics) {
         </thead>
         <tbody>
           ${attribution.map(a => {
-            const retCls  = a.returnPct >= 0 ? 'positive' : 'negative';
-            const contCls = a.contribution >= 0 ? 'positive' : 'negative';
             const barPct  = (Math.abs(a.contribution) / maxContrib * 100).toFixed(1);
             const barColor = a.contribution >= 0 ? 'var(--color-positive)' : 'var(--color-negative)';
             return `
@@ -2085,11 +2061,8 @@ function renderDiversificationScore(container, metrics) {
   const grade = getDivGrade(divScore);
   const gradeColor = divScore >= 70 ? 'var(--color-positive)'
     : divScore >= 40 ? 'var(--color-warning)' : 'var(--color-negative)';
-
-  const topHolding = Object.entries(holdingData)
-    .sort((a, b) => b[1].value - a[1].value)[0];
+  const topHolding = Object.entries(holdingData).sort((a, b) => b[1].value - a[1].value)[0];
   const topPct = topHolding ? (topHolding[1].weight * 100).toFixed(1) : 0;
-
   const wrap = document.createElement('div');
   wrap.className = 'diversification-score-wrap';
   wrap.innerHTML = `
@@ -2120,8 +2093,6 @@ function renderDiversificationScore(container, metrics) {
       </div>
     </div>`;
   container.appendChild(wrap);
-
-  // Draw the ring chart
   const canvas = document.getElementById('analytics-div-ring');
   if (canvas) {
     destroyChart('divScoreChart');
@@ -2163,7 +2134,7 @@ const BB_VIEWS = [
     id: 'dashboard',
     label: 'Dashboard',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
-    external: true,  // Handled by existing app nav
+    external: true,
     existingView: 'portfolio',
   },
   {
@@ -2185,13 +2156,11 @@ const BB_VIEWS = [
     id: 'screener',
     label: 'Screener',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
-    comingSoon: true,
   },
   {
     id: 'fundamentals',
     label: 'Fundamentals',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
-    comingSoon: true,
   },
   {
     id: 'analytics',
@@ -2202,67 +2171,25 @@ const BB_VIEWS = [
     id: 'calendar',
     label: 'Calendar',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
-    comingSoon: true,
   },
 ];
 
 function createBloombergNav() {
-  // Find existing bottom nav
-  const existingNav = document.querySelector('.bottom-nav');
-  if (!existingNav) return null;
-
-  // Create Bloomberg nav bar (replaces existing bottom nav conceptually, added below it)
-  const nav = document.createElement('nav');
-  nav.className = 'bloomberg-nav';
-  nav.id = 'bloomberg-nav';
-  nav.setAttribute('aria-label', 'Bloomberg navigation');
-
-  nav.innerHTML = BB_VIEWS.map(v => `
-    <button class="bloomberg-nav-item ${v.id === 'dashboard' ? 'active' : ''}"
-            id="bb-nav-${v.id}"
-            data-bbview="${v.id}"
-            aria-label="${v.label}"
-            ${v.comingSoon ? `title="${v.label} — Coming Soon"` : ''}>
-      ${v.icon}
-      <span>${v.label}</span>
-      ${v.comingSoon ? '<span class="bloomberg-nav-badge" style="background:var(--color-warning);color:#0d0f11;">SOON</span>' : ''}
-    </button>`).join('');
-
-  // Wire up nav items
-  nav.querySelectorAll('.bloomberg-nav-item').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const viewId = btn.dataset.bbview;
-      if (viewId) showBloombergView(viewId);
-    });
-  });
-
-  // Insert after existing bottom nav
-  existingNav.parentNode.insertBefore(nav, existingNav.nextSibling);
-  return nav;
+  // No-op: navigation is now handled by the unified bottom nav in index.html
 }
 
 function createBloombergContainer() {
-  // Create the main Bloomberg content container
   const mainContent = document.querySelector('.main-content');
   if (!mainContent || document.getElementById('bloomberg-container')) return;
 
   const container = document.createElement('div');
   container.id = 'bloomberg-container';
-  container.style.display = 'none'; // Hidden until a Bloomberg view is shown
+  container.style.display = 'none';
 
-  // Create all view divs
   const views = BB_VIEWS.filter(v => !v.external);
   container.innerHTML = views.map(v => `
-    <div class="bloomberg-view" id="bb-${v.id}-view">
-      ${v.comingSoon ? `
-        <div class="bb-empty" style="padding:60px 20px;">
-          ${v.icon.replace('stroke-width="2"', 'width="40" height="40" style="opacity:0.3;margin:0 auto 12px;"')}
-          <div class="bb-empty-title">${v.label}</div>
-          <div class="bb-empty-desc">Coming in Part 2 — stay tuned</div>
-        </div>` : ''}
-    </div>`).join('');
+    <div class="bloomberg-view" id="bb-${v.id}-view"></div>`).join('');
 
-  // Insert before the main-content (but after the app shell) — actually inside app shell
   const appShell = document.querySelector('.app-shell');
   const bottomNav = document.querySelector('.bottom-nav');
   if (appShell && bottomNav) {
@@ -2274,22 +2201,11 @@ async function showBloombergView(viewId) {
   const view = BB_VIEWS.find(v => v.id === viewId);
   if (!view) return;
 
-  // Update nav active state
-  document.querySelectorAll('.bloomberg-nav-item').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.bbview === viewId);
-  });
-
-  // Also update existing bottom nav for Dashboard
-  const existingNav = document.querySelector('.bottom-nav');
-
   if (view.external) {
-    // Show existing app view, hide bloomberg container
     const bbContainer = document.getElementById('bloomberg-container');
     const mainContent = document.querySelector('.main-content');
     if (bbContainer) bbContainer.style.display = 'none';
     if (mainContent) mainContent.style.display = '';
-
-    // Click the corresponding existing nav item
     if (view.existingView) {
       const existingBtn = document.querySelector(`.bottom-nav .nav-item[data-view="${view.existingView}"]`);
       if (existingBtn) existingBtn.click();
@@ -2298,27 +2214,20 @@ async function showBloombergView(viewId) {
     return;
   }
 
-  // Hide main-content, show bloomberg container
   const mainContent = document.querySelector('.main-content');
   const bbContainer = document.getElementById('bloomberg-container');
   if (mainContent) mainContent.style.display = 'none';
   if (bbContainer) bbContainer.style.display = 'block';
 
-  // Hide all bloomberg views, show selected
   document.querySelectorAll('.bloomberg-view').forEach(v => v.classList.remove('active'));
   const targetView = document.getElementById(`bb-${viewId}-view`);
   if (targetView) targetView.classList.add('active');
 
   BB.activeView = viewId;
-
-  // Lazy-load content for each view
-  if (!view.comingSoon) {
-    await loadBloombergViewContent(viewId, targetView);
-  }
+  await loadBloombergViewContent(viewId, targetView);
 }
 
 async function loadBloombergViewContent(viewId, viewEl) {
-  // Only load if not already loaded (check for sentinel)
   if (viewEl.dataset.loaded === '1') return;
 
   switch (viewId) {
@@ -2326,30 +2235,55 @@ async function loadBloombergViewContent(viewId, viewEl) {
       await showHeatmap(viewEl);
       viewEl.dataset.loaded = '1';
       break;
-
     case 'charts':
       renderChartsView(viewEl);
       viewEl.dataset.loaded = '1';
       break;
-
     case 'news':
       renderNewsView(viewEl);
       viewEl.dataset.loaded = '1';
       break;
-
     case 'analytics':
       await showPortfolioAnalytics();
+      viewEl.dataset.loaded = '1';
+      break;
+    case 'screener':
+      if (typeof showScreener === 'function') {
+        const mc1 = document.querySelector('.main-content');
+        const bc1 = document.getElementById('bloomberg-container');
+        if (mc1) mc1.style.display = '';
+        if (bc1) bc1.style.display = 'none';
+        showScreener();
+      }
+      viewEl.dataset.loaded = '1';
+      break;
+    case 'fundamentals':
+      if (typeof showFundamentals === 'function') {
+        const mc2 = document.querySelector('.main-content');
+        const bc2 = document.getElementById('bloomberg-container');
+        if (mc2) mc2.style.display = '';
+        if (bc2) bc2.style.display = 'none';
+        showFundamentals();
+      }
+      viewEl.dataset.loaded = '1';
+      break;
+    case 'calendar':
+      if (typeof showEconomicCalendar === 'function') {
+        const mc3 = document.querySelector('.main-content');
+        const bc3 = document.getElementById('bloomberg-container');
+        if (mc3) mc3.style.display = '';
+        if (bc3) bc3.style.display = 'none';
+        showEconomicCalendar();
+      }
       viewEl.dataset.loaded = '1';
       break;
   }
 }
 
-// Force reload a view (e.g. after portfolio changes)
 function invalidateBloombergView(viewId) {
   const viewEl = document.getElementById(`bb-${viewId}-view`);
   if (viewEl) {
     viewEl.dataset.loaded = '0';
-    // Clear content if view is active
     if (BB.activeView === viewId) {
       loadBloombergViewContent(viewId, viewEl);
     }
@@ -2406,30 +2340,13 @@ function destroyChart(chartRef) {
 // ============================================
 
 function initBloomberg() {
-  // 1. Inject bloomberg.css if not already present
   injectBloombergCSS();
-
-  // 2. Create the Bloomberg container div in the DOM
   createBloombergContainer();
-
-  // 3. Create the Bloomberg navigation bar
-  createBloombergNav();
-
-  // 4. Initialize market monitor (indices ticker bar)
   initMarketMonitor();
-
-  // 5. Initialize alerts from localStorage
   initAlerts();
-
-  // 6. Sync existing nav — when user clicks existing Portfolio/Charts/News/Insights/Watchlist,
-  //    deactivate Bloomberg nav items
-  syncExistingNav();
-
-  // 7. Request notification permission for alerts
   if ('Notification' in window && Notification.permission === 'default') {
     // Don't prompt immediately — wait for user to create an alert
   }
-
   console.log('[Bloomberg] Module initialized ✓');
 }
 
@@ -2443,29 +2360,12 @@ function injectBloombergCSS() {
 }
 
 function syncExistingNav() {
-  // When existing bottom nav items are clicked, deactivate Bloomberg nav
-  document.querySelectorAll('.bottom-nav .nav-item').forEach(btn => {
-    btn.addEventListener('click', () => {
-      // Show main content, hide Bloomberg container
-      const mainContent = document.querySelector('.main-content');
-      const bbContainer = document.getElementById('bloomberg-container');
-      if (mainContent) mainContent.style.display = '';
-      if (bbContainer) bbContainer.style.display = 'none';
-
-      // Deactivate all Bloomberg nav items, activate Dashboard
-      document.querySelectorAll('.bloomberg-nav-item').forEach(b => {
-        b.classList.toggle('active', b.dataset.bbview === 'dashboard');
-      });
-      BB.activeView = 'dashboard';
-    });
-  });
+  // No-op: the unified bottom nav handles all navigation now.
 }
 
 // ============================================
 // SECTION 9: EXPOSE GLOBALS FOR HTML ONCLICK
 // ============================================
-// These functions are called from inline onclick handlers in generated HTML.
-// We assign them to window to ensure they are accessible.
 
 window.loadTechnicalChart   = loadTechnicalChart;
 window.onTechPeriodChange   = onTechPeriodChange;
