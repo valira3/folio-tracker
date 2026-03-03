@@ -488,9 +488,8 @@ async function runScreen(filters) {
     if (filters.pos52wMin) body.pos_52w_min = parseFloat(filters.pos52wMin);
     if (filters.pos52wMax) body.pos_52w_max = parseFloat(filters.pos52wMax);
 
-    const data = await marketApi('/screener', {});
-    // marketApi uses GET; for POST we call directly
-    const url = '/market/screener' + (typeof authToken !== 'undefined' && authToken ? '?token=' + authToken : '');
+    // POST directly to screener endpoint
+    const url = '/market/screener';
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -609,7 +608,7 @@ function renderScreenerResults(container, results) {
   }).join('');
 
   const rowsHtml = sorted.map((r, idx) => {
-    const chgClass = (r.change_pct || 0) >= 0 ? 'b2-pos' : 'b2-neg';
+    const chgClass = ((r.change_pct || r.dayChangePct || 0)) >= 0 ? 'b2-pos' : 'b2-neg';
     const pos52w = r.pos_52w != null ? r.pos_52w : 50;
 
     const inWatchlist = typeof watchlist !== 'undefined' && watchlist.includes(r.ticker);
@@ -625,7 +624,7 @@ function renderScreenerResults(container, results) {
         <div class="col-sector">${r.sector || '—'}</div>
       </td>
       <td>${b2Price(r.price)}</td>
-      <td class="${chgClass}">${b2Pct(r.change_pct)}</td>
+      <td class="${chgClass}">${b2Pct(r.change_pct != null ? r.change_pct : r.dayChangePct)}</td>
       <td>${r.pe != null ? b2Num(r.pe, 1) : '—'}</td>
       <td>${b2Fmt(r.market_cap)}</td>
       <td>${b2Fmt(r.volume, 0)}</td>
@@ -848,8 +847,12 @@ function renderSavedScreens(container, screens) {
  * Show the fundamentals view for a ticker.
  */
 async function showFundamentals(ticker) {
-  fundamentalsTicker = ticker ? ticker.toUpperCase() : null;
-  if (!fundamentalsTicker) return;
+  // If no ticker provided, default to first portfolio stock or 'AAPL'
+  if (!ticker) {
+    const portfolioTickers = Object.keys(typeof portfolio !== 'undefined' ? portfolio : {});
+    ticker = portfolioTickers[0] || 'AAPL';
+  }
+  fundamentalsTicker = ticker.toUpperCase();
 
   const view = b2EnsureView('view-fundamentals', 'b2-view');
   b2ActivateView('view-fundamentals');
@@ -872,7 +875,16 @@ async function showFundamentals(ticker) {
   });
 
   try {
-    const data = await marketApi('/fundamentals', { ticker: fundamentalsTicker });
+    // Fetch fundamentals + quotes in parallel
+    const [fundData, quoteData] = await Promise.all([
+      marketApi('/fundamentals', { ticker: fundamentalsTicker }).catch(() => null),
+      marketApi('/quotes', { tickers: fundamentalsTicker }).catch(() => null)
+    ]);
+    const quote = quoteData?.quotes?.[fundamentalsTicker] || {};
+    const cached = typeof stockDataCache !== 'undefined' ? stockDataCache[fundamentalsTicker] : {};
+    
+    // Normalize the API response to match what renderFundamentalsView expects
+    const data = normalizeFundamentals(fundData, quote, cached, fundamentalsTicker);
     renderFundamentalsView(view, data, fundamentalsTicker);
   } catch (e) {
     // Try to render from cache
@@ -884,6 +896,115 @@ async function showFundamentals(ticker) {
       b2SetError(content, `Could not load fundamentals for ${fundamentalsTicker}: ${e.message}`);
     }
   }
+}
+
+/**
+ * Normalize API fundamentals response to match renderer expectations.
+ */
+function normalizeFundamentals(fundData, quote, cached, ticker) {
+  const fd = fundData || {};
+  const q = quote || {};
+  const c = cached || {};
+  
+  const price = q.price || c.price || 0;
+  const change = q.dayChange || c.dayChange || 0;
+  const changePct = q.dayChangePct || c.dayChangePct || 0;
+  
+  // Map income_statement -> income with years array
+  const incomeRaw = fd.income_statement || fd.income || {};
+  const income = incomeRaw.years ? incomeRaw : {
+    years: incomeRaw.years || Object.keys(incomeRaw.revenue || {}).slice(0, 4) || [],
+    revenue: Object.values(incomeRaw.revenue || {}).slice(0, 4) || [],
+    gross_profit: Object.values(incomeRaw.gross_profit || {}).slice(0, 4) || [],
+    operating_income: Object.values(incomeRaw.operating_income || {}).slice(0, 4) || [],
+    net_income: Object.values(incomeRaw.net_income || {}).slice(0, 4) || [],
+    eps: Object.values(incomeRaw.eps || {}).slice(0, 4) || [],
+  };
+  
+  // Map balance_sheet -> balance
+  const balanceRaw = fd.balance_sheet || fd.balance || {};
+  const balance = balanceRaw.years ? balanceRaw : {
+    years: balanceRaw.years || [],
+    total_assets: Object.values(balanceRaw.total_assets || {}).slice(0, 4) || [],
+    total_liabilities: Object.values(balanceRaw.total_liabilities || {}).slice(0, 4) || [],
+    equity: Object.values(balanceRaw.total_equity || balanceRaw.equity || {}).slice(0, 4) || [],
+    cash: Object.values(balanceRaw.cash || {}).slice(0, 4) || [],
+  };
+  
+  // Map cash_flow -> cashflow
+  const cfRaw = fd.cash_flow || fd.cashflow || {};
+  const cashflow = cfRaw.years ? cfRaw : {
+    years: cfRaw.years || [],
+    operating: Object.values(cfRaw.operating || {}).slice(0, 4) || [],
+    free_cashflow: Object.values(cfRaw.free_cash_flow || cfRaw.free_cashflow || {}).slice(0, 4) || [],
+  };
+  
+  // Key ratios
+  const kr = fd.key_ratios || fd.ratios || {};
+  const ratios = {
+    roe: kr.ROE || kr.roe || null,
+    roa: kr.ROA || kr.roa || null,
+    profit_margin: kr.profit_margin || null,
+    debt_equity: kr.debt_to_equity || kr.debt_equity || null,
+    current_ratio: kr.current_ratio || null,
+    quick_ratio: kr.quick_ratio || null,
+  };
+  
+  // Analyst
+  const analyst = fd.analyst || {};
+  if (!analyst.buy && !analyst.hold && !analyst.sell) {
+    analyst.buy = q.analystBuy || c.analystBuy || 0;
+    analyst.hold = q.analystHold || c.analystHold || 0;
+    analyst.sell = q.analystSell || c.analystSell || 0;
+    analyst.avg_target = q.ptAvg || c.ptAvg || 0;
+    analyst.low_target = q.ptLow || c.ptLow || 0;
+    analyst.high_target = q.ptHigh || c.ptHigh || 0;
+  }
+  
+  // Estimates
+  const est = fd.earnings_estimates || fd.estimates || {};
+  const estimates = {
+    eps_current_year: est.current_year_eps || est.eps_current_year || null,
+    eps_next_year: est.next_year_eps || est.eps_next_year || null,
+    rev_current_year: est.current_year_revenue || est.rev_current_year || null,
+    rev_next_year: est.next_year_revenue || est.rev_next_year || null,
+    price_low: analyst.low_target || null,
+    price_avg: analyst.avg_target || null,
+    price_high: analyst.high_target || null,
+  };
+  
+  // Quarterly EPS (for earnings tab)
+  const qeps = fd.quarterly_eps || [];
+  const earnings = {
+    quarters: qeps.map(q => q.date || '').slice(0, 4),
+    actual_eps: qeps.map(q => q.actual).slice(0, 4),
+    estimated_eps: qeps.map(q => q.estimate).slice(0, 4),
+  };
+  
+  return {
+    ticker,
+    name: fd.name || q.name || c.name || ticker,
+    sector: q.sector || c.sector || 'Unknown',
+    price,
+    change: changePct,
+    change_pct: changePct,
+    market_cap: q.marketCap || c.marketCap || 0,
+    pe: q.pe || c.pe || null,
+    pb: null,
+    ps: null,
+    ev_ebitda: null,
+    div_yield: q.divYield || c.divYield || 0,
+    beta: q.beta || c.beta || null,
+    week_52_low: q.low52 || c.low52 || null,
+    week_52_high: q.high52 || c.high52 || null,
+    analyst,
+    income,
+    balance,
+    cashflow,
+    ratios,
+    earnings,
+    estimates,
+  };
 }
 
 /**
