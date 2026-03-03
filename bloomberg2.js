@@ -148,9 +148,11 @@ function b2ActivateView(id) {
     const main = document.getElementById('main-content');
     if (main) main.scrollTop = 0;
   }
-  // Update nav items
+  // Update nav items — check both plain and bb- prefixed data-view values
+  const plainId = id.replace('view-', '');
+  const bbId = 'bb-' + plainId;
   document.querySelectorAll('.nav-item').forEach(n => {
-    n.classList.toggle('active', n.dataset.view === id.replace('view-', ''));
+    n.classList.toggle('active', n.dataset.view === plainId || n.dataset.view === bbId);
   });
 }
 
@@ -2688,48 +2690,8 @@ function renderValuationRadar(container, data, primaryTicker) {
  * Add navigation buttons for bloomberg2 views to the bottom nav.
  */
 function addBloomberg2NavItems() {
-  const nav = document.querySelector('.bottom-nav');
-  if (!nav) return;
-
-  // Don't add if already added
-  if (nav.querySelector('[data-view="screener"]')) return;
-
-  const navItems = [
-    {
-      view: 'screener',
-      label: 'Screener',
-      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`,
-      handler: () => showScreener()
-    },
-    {
-      view: 'calendar',
-      label: 'Calendar',
-      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
-      handler: () => showEconomicCalendar()
-    }
-  ];
-
-  // Add extra nav row (wrap in scrollable container)
-  const extraRow = document.createElement('div');
-  extraRow.className = 'b2-nav-extra';
-  extraRow.id = 'b2-nav-extra';
-
-  navItems.forEach(item => {
-    const btn = document.createElement('button');
-    btn.className = 'nav-item';
-    btn.dataset.view = item.view;
-    btn.setAttribute('aria-label', item.label);
-    btn.innerHTML = `${item.svg}<span>${item.label}</span>`;
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-      btn.classList.add('active');
-      item.handler();
-    });
-    extraRow.appendChild(btn);
-  });
-
-  // Insert after bottom-nav
-  nav.parentNode.insertBefore(extraRow, nav.nextSibling);
+  // No-op: navigation is now handled by the unified bottom nav in index.html.
+  // The old extra nav row (b2-nav-extra) is no longer needed.
 }
 
 /**
@@ -2767,8 +2729,7 @@ function registerBloomberg2Globals() {
  * Called after successful login from app.js.
  */
 function initBloomberg2() {
-  // Register views with the navigation system
-  addBloomberg2NavItems();
+  // Navigation is handled by the unified bottom nav in index.html
   patchViewSwitching();
   registerBloomberg2Globals();
 
