@@ -287,6 +287,10 @@ body {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  /* Prevent extra space below nav */
+  min-height: 52px;
+  max-height: calc(52px + env(safe-area-inset-bottom, 0px));
+  margin-bottom: 0;
 }
 
 .bottom-nav::-webkit-scrollbar {
@@ -2139,4 +2143,43 @@ body {
 .news-card[onclick]:hover,
 .detail-news-item[onclick]:hover {
   background: var(--color-surface-offset);
+}
+
+
+/* ============================================
+   FIX: Bloomberg container and b2 views layout
+   ============================================ */
+#bloomberg-container {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.b2-view {
+  display: none;
+}
+.b2-view.active {
+  display: block;
+}
+
+/* Fix: ensure news items in bloomberg are expandable and show summary */
+.news-bb-item .news-bb-summary {
+  display: none;
+  padding: 8px 12px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-divider);
+}
+.news-bb-item.expanded .news-bb-summary {
+  display: block;
+}
+.news-bb-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 12px;
+}
+.news-bb-link:hover {
+  text-decoration: underline;
 }
