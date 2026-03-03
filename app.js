@@ -195,6 +195,8 @@ function initAuthUI() {
       await loadUserData();
       hideAuthScreen();
       initApp();
+      if (typeof initBloomberg === 'function') initBloomberg();
+      if (typeof initBloomberg2 === 'function') initBloomberg2();
     } catch(e) { authError.textContent = e.message; }
     finally { btn.disabled = false; btn.textContent = 'Sign In'; }
   });
@@ -214,6 +216,8 @@ function initAuthUI() {
       await loadUserData();
       hideAuthScreen();
       initApp();
+      if (typeof initBloomberg === 'function') initBloomberg();
+      if (typeof initBloomberg2 === 'function') initBloomberg2();
     } catch(e) { authError.textContent = e.message; }
     finally { btn.disabled = false; btn.textContent = 'Create Account'; }
   });
