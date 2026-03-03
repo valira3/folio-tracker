@@ -704,7 +704,9 @@ function switchView(view) {
     } else if (bbViewId === 'fundamentals' && typeof showFundamentals === 'function') {
       if (bbContainer) bbContainer.style.display = 'none';
       if (mainContent) mainContent.style.display = '';
-      showFundamentals();
+      // Pass first portfolio ticker as default; showFundamentals handles null gracefully
+      const defTicker = Object.keys(portfolio || {})[0] || null;
+      showFundamentals(defTicker);
     } else if (bbViewId === 'calendar' && typeof showEconomicCalendar === 'function') {
       if (bbContainer) bbContainer.style.display = 'none';
       if (mainContent) mainContent.style.display = '';
@@ -1323,17 +1325,22 @@ async function renderNewsView() {
     listEl.innerHTML = `<div style="text-align:center; padding:var(--space-8); color:var(--color-text-faint);">No news available. Pull to refresh.</div>`;
     return;
   }
-  listEl.innerHTML = filteredNews.map(n => `
-    <div class="news-card" ${n.url ? `onclick="window.open('${n.url}', '_blank')"` : ''} style="${n.url ? 'cursor:pointer' : ''}">
+  listEl.innerHTML = filteredNews.map(n => {
+    const newsUrl = n.url || n.link || '';
+    const newsTitle = n.headline || n.title || 'Untitled';
+    const newsSource = n.source || n.publisher || 'Yahoo Finance';
+    const newsSummary = n.summary || n.description || '';
+    return `
+    <div class="news-card" ${newsUrl ? `onclick="window.open('${newsUrl.replace(/'/g, "\\'")}', '_blank')"` : ''} style="${newsUrl ? 'cursor:pointer' : ''}">
       <div class="news-meta">
         ${n.ticker ? `<span class="news-ticker-badge">${n.ticker}</span>` : ''}
-        <span class="news-source">${n.source || 'Yahoo Finance'}</span>
+        <span class="news-source">${newsSource}</span>
         <span class="news-time">${timeAgo(n.pubDate)}</span>
       </div>
-      <div class="news-headline">${n.headline}</div>
-      ${n.summary ? `<div class="news-summary" style="font-size:11px; color:var(--color-text-faint); margin-top:var(--space-1); line-height:1.4;">${n.summary.slice(0, 120)}${n.summary.length > 120 ? '...' : ''}</div>` : ''}
-    </div>
-  `).join('');
+      <div class="news-headline">${newsTitle}</div>
+      ${newsSummary ? `<div class="news-summary" style="font-size:11px; color:var(--color-text-faint); margin-top:var(--space-1); line-height:1.4;">${newsSummary.slice(0, 180)}${newsSummary.length > 180 ? '...' : ''}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 // ============================================
