@@ -475,18 +475,33 @@ async function runScreen(filters) {
   if (exportBtn) exportBtn.style.display = 'none';
 
   try {
-    // Build POST body
+    // Build POST body — map frontend filter names to backend expected names
     const body = {};
-    if (filters.sectors && filters.sectors.length > 0) body.sectors = filters.sectors;
-    if (filters.marketCap) body.market_cap = filters.marketCap;
-    if (filters.peMin) body.pe_min = parseFloat(filters.peMin);
-    if (filters.peMax) body.pe_max = parseFloat(filters.peMax);
-    if (filters.divYieldMin) body.div_yield_min = parseFloat(filters.divYieldMin);
-    if (filters.divYieldMax) body.div_yield_max = parseFloat(filters.divYieldMax);
-    if (filters.betaMin) body.beta_min = parseFloat(filters.betaMin);
-    if (filters.betaMax) body.beta_max = parseFloat(filters.betaMax);
-    if (filters.pos52wMin) body.pos_52w_min = parseFloat(filters.pos52wMin);
-    if (filters.pos52wMax) body.pos_52w_max = parseFloat(filters.pos52wMax);
+    // Backend expects 'sector' (single string), not 'sectors' (array)
+    if (filters.sectors && filters.sectors.length > 0) body.sector = filters.sectors[0];
+    // Backend expects numeric min_market_cap/max_market_cap, not string label
+    if (filters.marketCap) {
+      const mcMap = {
+        'mega':  { min_market_cap: 200e9 },
+        'large': { min_market_cap: 10e9, max_market_cap: 200e9 },
+        'mid':   { min_market_cap: 2e9,  max_market_cap: 10e9 },
+        'small': { max_market_cap: 2e9 }
+      };
+      const mc = mcMap[filters.marketCap];
+      if (mc) Object.assign(body, mc);
+    }
+    // Backend expects min_pe/max_pe, not pe_min/pe_max
+    if (filters.peMin) body.min_pe = parseFloat(filters.peMin);
+    if (filters.peMax) body.max_pe = parseFloat(filters.peMax);
+    // Backend expects min_div_yield/max_div_yield
+    if (filters.divYieldMin) body.min_div_yield = parseFloat(filters.divYieldMin);
+    if (filters.divYieldMax) body.max_div_yield = parseFloat(filters.divYieldMax);
+    // Backend expects min_beta/max_beta
+    if (filters.betaMin) body.min_beta = parseFloat(filters.betaMin);
+    if (filters.betaMax) body.max_beta = parseFloat(filters.betaMax);
+    // Backend expects min_52w_pct/max_52w_pct
+    if (filters.pos52wMin) body.min_52w_pct = parseFloat(filters.pos52wMin);
+    if (filters.pos52wMax) body.max_52w_pct = parseFloat(filters.pos52wMax);
 
     // POST directly to screener endpoint
     const url = '/market/screener';
@@ -498,7 +513,42 @@ async function runScreen(filters) {
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Screen failed');
 
-    screenerResults = json.results || json.stocks || [];
+    // Normalize backend field names to what the rendering table expects
+    const raw = json.results || json.stocks || [];
+    screenerResults = raw.map(r => {
+      // Parse marketCap string ("3.5T") to numeric value
+      let mcNum = r.marketCapNum || 0;
+      if (!mcNum && r.marketCap && typeof r.marketCap === 'string') {
+        const s = r.marketCap;
+        if (s.endsWith('T')) mcNum = parseFloat(s) * 1e12;
+        else if (s.endsWith('B')) mcNum = parseFloat(s) * 1e9;
+        else if (s.endsWith('M')) mcNum = parseFloat(s) * 1e6;
+        else mcNum = parseFloat(s) || 0;
+      }
+      // Compute 52-week position percentage
+      const low52  = r.low52 || r.week_52_low || 0;
+      const high52 = r.high52 || r.week_52_high || 0;
+      const price  = r.price || 0;
+      const pos52w = r.pctFrom52wLow != null ? r.pctFrom52wLow
+                   : r.pos_52w != null ? r.pos_52w
+                   : (high52 > low52 ? ((price - low52) / (high52 - low52)) * 100 : 50);
+      return {
+        ticker:       r.ticker,
+        name:         r.name,
+        sector:       r.sector,
+        price:        r.price,
+        change_pct:   r.dayChangePct != null ? r.dayChangePct : r.change_pct,
+        pe:           r.pe,
+        market_cap:   mcNum,
+        volume:       r.volume,
+        div_yield:    r.divYield != null ? r.divYield : r.div_yield,
+        beta:         r.beta,
+        week_52_low:  low52,
+        week_52_high: high52,
+        pos_52w:      pos52w,
+        eps:          r.eps
+      };
+    });
     if (countEl) countEl.innerHTML = `Found <strong>${screenerResults.length}</strong> results`;
     if (exportBtn && screenerResults.length > 0) exportBtn.style.display = '';
     renderScreenerResults(area, screenerResults);
