@@ -349,8 +349,9 @@ async function showScreener() {
 
   b2ActivateView('view-screener');
   renderScreenerFilters(view);
-  await loadSavedScreens();
   initScreenerEvents(view);
+  // Load saved screens asynchronously — don't block event binding
+  loadSavedScreens().catch(() => {});
 }
 
 /**
