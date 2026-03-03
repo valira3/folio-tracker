@@ -4,99 +4,12 @@
    ============================================ */
 
 /* ============================================
-   BLOOMBERG NAVIGATION BAR
-   Desktop: side tabs | Mobile: bottom extension
+   BLOOMBERG NAVIGATION — removed (unified bottom nav in style.css)
    ============================================ */
 
-.bloomberg-nav {
-  display: flex;
-  align-items: stretch;
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-divider);
-  padding-bottom: env(safe-area-inset-bottom, 0);
-  flex-shrink: 0;
-  z-index: 50;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.bloomberg-nav::-webkit-scrollbar { display: none; }
-
-.bloomberg-nav-item {
-  flex: 1;
-  min-width: 56px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 8px 4px;
-  color: var(--color-text-faint);
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color 180ms cubic-bezier(0.16,1,0.3,1), background 180ms cubic-bezier(0.16,1,0.3,1);
-  min-height: 52px;
-  position: relative;
-  border: none;
-  background: transparent;
-  font-family: 'DM Sans', sans-serif;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.bloomberg-nav-item svg {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  transition: transform 180ms cubic-bezier(0.16,1,0.3,1);
-}
-
-.bloomberg-nav-item.active {
-  color: var(--color-primary);
-}
-
-.bloomberg-nav-item.active svg {
-  transform: scale(1.08);
-}
-
-.bloomberg-nav-item:active {
-  transform: scale(0.93);
-}
-
-.bloomberg-nav-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 2px;
-  background: var(--color-primary);
-  border-radius: 0 0 9999px 9999px;
-  transition: width 180ms cubic-bezier(0.16,1,0.3,1);
-}
-
-.bloomberg-nav-item.active::before {
-  width: 28px;
-}
-
-.bloomberg-nav-badge {
-  position: absolute;
-  top: 6px;
-  right: calc(50% - 14px);
-  background: var(--color-negative);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  padding: 1px 4px;
-  border-radius: 9999px;
-  line-height: 1.4;
-  min-width: 14px;
-  text-align: center;
-}
+/* bloomberg-nav, bloomberg-nav-item, bloomberg-nav-badge styles
+   have been removed. The app now uses a single horizontally-scrolling
+   .bottom-nav defined in style.css. */
 
 /* ============================================
    BLOOMBERG CONTAINER & VIEW SYSTEM
@@ -1807,12 +1720,6 @@
 }
 
 @media (min-width: 768px) {
-  .bloomberg-nav-item {
-    font-size: 10px;
-    min-height: 56px;
-    padding: 10px 6px;
-  }
-
   .news-bb-container { padding: 16px 24px; }
   .analytics-container { padding: 16px 24px; }
   .tech-chart-container { padding: 16px 24px; }
