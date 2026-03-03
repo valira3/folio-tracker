@@ -656,30 +656,79 @@ function generateSparkline(ticker, days = 7) {
 // ============================================
 
 let currentView = 'portfolio';
-const navItems = document.querySelectorAll('.nav-item');
 const views = document.querySelectorAll('.view');
 
-navItems.forEach(item => {
-  item.addEventListener('click', () => {
-    const view = item.dataset.view;
-    switchView(view);
-  });
+// Use event delegation on the unified bottom nav so it works for all items
+// (including Bloomberg items present from the start)
+document.querySelector('.bottom-nav')?.addEventListener('click', (e) => {
+  const item = e.target.closest('.nav-item');
+  if (!item) return;
+  const view = item.dataset.view;
+  if (view) switchView(view);
 });
 
 function switchView(view) {
   currentView = view;
-  navItems.forEach(n => n.classList.toggle('active', n.dataset.view === view));
-  views.forEach(v => {
-    v.classList.remove('active');
-    if (v.id === `view-${view}`) v.classList.add('active');
-  });
-  document.querySelector('.main-content').scrollTop = 0;
+  // Update all nav items
+  document.querySelectorAll('.bottom-nav .nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
 
-  if (view === 'chart') renderChartView();
-  if (view === 'news') renderNewsView();
-  if (view === 'insights') renderInsightsView();
-  if (view === 'watchlist') renderWatchlistView();
-  if (view === 'portfolio') renderPortfolioView();
+  const mainContent = document.querySelector('.main-content');
+  const bbContainer = document.getElementById('bloomberg-container');
+
+  if (view.startsWith('bb-')) {
+    // Bloomberg view
+    if (mainContent) mainContent.style.display = 'none';
+    if (bbContainer) bbContainer.style.display = 'block';
+
+    // Hide all bloomberg views, show selected
+    document.querySelectorAll('.bloomberg-view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.b2-view').forEach(v => { v.classList.remove('active'); v.style.display = ''; });
+    // Hide regular views
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+
+    const bbViewId = view.replace('bb-', '');
+
+    // Route to correct handler
+    if (bbViewId === 'market' && typeof showBloombergView === 'function') {
+      showBloombergView('market');
+    } else if (bbViewId === 'charts' && typeof showBloombergView === 'function') {
+      showBloombergView('charts');
+    } else if (bbViewId === 'news' && typeof showBloombergView === 'function') {
+      showBloombergView('news');
+    } else if (bbViewId === 'analytics' && typeof showBloombergView === 'function') {
+      showBloombergView('analytics');
+    } else if (bbViewId === 'screener' && typeof showScreener === 'function') {
+      if (bbContainer) bbContainer.style.display = 'none';
+      if (mainContent) mainContent.style.display = '';
+      showScreener();
+    } else if (bbViewId === 'fundamentals' && typeof showFundamentals === 'function') {
+      if (bbContainer) bbContainer.style.display = 'none';
+      if (mainContent) mainContent.style.display = '';
+      showFundamentals();
+    } else if (bbViewId === 'calendar' && typeof showEconomicCalendar === 'function') {
+      if (bbContainer) bbContainer.style.display = 'none';
+      if (mainContent) mainContent.style.display = '';
+      showEconomicCalendar();
+    }
+  } else {
+    // Regular view
+    if (mainContent) mainContent.style.display = '';
+    if (bbContainer) bbContainer.style.display = 'none';
+    // Hide any b2 views (they live inside main-content)
+    document.querySelectorAll('.b2-view').forEach(v => { v.classList.remove('active'); v.style.display = ''; });
+
+    views.forEach(v => {
+      v.classList.remove('active');
+      if (v.id === 'view-' + view) v.classList.add('active');
+    });
+    document.querySelector('.main-content').scrollTop = 0;
+
+    if (view === 'chart') renderChartView();
+    if (view === 'news') renderNewsView();
+    if (view === 'insights') renderInsightsView();
+    if (view === 'watchlist') renderWatchlistView();
+    if (view === 'portfolio') renderPortfolioView();
+  }
 }
 
 // ============================================
