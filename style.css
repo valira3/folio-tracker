@@ -1714,6 +1714,324 @@ body {
 }
 
 /* ============================================
+   LOTS SPREADSHEET VIEW
+   ============================================ */
+.lots-view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.lots-view-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.lots-add-row-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 8px 14px;
+}
+
+.lots-spreadsheet-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.lots-spreadsheet {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.lots-spreadsheet thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.lots-spreadsheet th {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 8px;
+  text-align: left;
+  background: var(--color-surface-offset);
+  border-bottom: 2px solid var(--color-border);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.lots-spreadsheet th:last-child {
+  width: 44px;
+  text-align: center;
+}
+
+.lots-spreadsheet tbody tr {
+  transition: background 120ms ease;
+}
+
+.lots-spreadsheet tbody tr:hover {
+  background: rgba(255,255,255,0.025);
+}
+
+.lots-spreadsheet tbody tr.lots-row-new {
+  background: rgba(78, 205, 196, 0.06);
+}
+
+.lots-spreadsheet td {
+  padding: 0;
+  border-bottom: 1px solid var(--color-divider);
+  vertical-align: middle;
+  position: relative;
+}
+
+.lots-cell-input {
+  width: 100%;
+  height: 100%;
+  padding: 9px 8px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--color-text);
+  outline: none;
+  transition: background 120ms ease;
+  box-sizing: border-box;
+}
+
+.lots-cell-input:focus {
+  background: rgba(78, 205, 196, 0.08);
+  box-shadow: inset 0 0 0 1.5px var(--color-primary);
+}
+
+.lots-cell-input::placeholder {
+  color: var(--color-text-faint);
+  font-family: var(--font-body);
+}
+
+.lots-cell-input[type="date"] {
+  font-family: var(--font-mono);
+}
+
+.lots-cell-input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+/* Ticker cell with autocomplete */
+.lots-ticker-cell {
+  position: relative;
+}
+
+.lots-ticker-input {
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.lots-ticker-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  min-width: 220px;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 50;
+  display: none;
+}
+
+.lots-ticker-results.visible {
+  display: block;
+}
+
+.lots-ticker-result {
+  padding: 8px 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  transition: background 80ms ease;
+}
+
+.lots-ticker-result:hover {
+  background: var(--color-surface-offset);
+}
+
+.lots-ticker-result-symbol {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+  min-width: 50px;
+}
+
+.lots-ticker-result-name {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Type toggle in cell */
+.lots-type-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 4px 4px;
+}
+
+.lots-type-btn {
+  flex: 1;
+  padding: 5px 0;
+  border: none;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 120ms ease;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lots-type-btn.active-buy {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10B981;
+}
+
+.lots-type-btn.active-sell {
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
+}
+
+.lots-type-btn.inactive {
+  background: transparent;
+  color: var(--color-text-faint);
+}
+
+/* Delete button in spreadsheet */
+.lots-row-delete {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-faint);
+  transition: all 120ms ease;
+  margin: 0 auto;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.lots-row-delete:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #EF4444;
+}
+
+.lots-row-delete svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Summary row */
+.lots-spreadsheet tfoot td {
+  padding: 10px 8px;
+  border-top: 2px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+  background: var(--color-surface-offset);
+}
+
+/* Empty state */
+.lots-empty {
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.lots-empty-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-3);
+}
+
+.lots-empty-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.lots-empty-desc {
+  font-size: 12px;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-4);
+  line-height: 1.5;
+}
+
+/* Group header row */
+.lots-group-header td {
+  padding: 8px 8px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(78, 205, 196, 0.04);
+  border-bottom: 1px solid rgba(78, 205, 196, 0.15);
+}
+
+.lots-group-header .lots-group-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lots-group-header .lots-group-shares {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+/* Unsaved indicator */
+.lots-unsaved-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-warning, #F59E0B);
+  font-weight: 600;
+  animation: lotsPulse 2s infinite;
+}
+
+@keyframes lotsPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ============================================
    FAB (Floating Action Button)
    ============================================ */
 .fab {
