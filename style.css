@@ -1731,11 +1731,14 @@ body {
 }
 
 .lots-add-row-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
   padding: 8px 14px;
+  flex-shrink: 0;
+  width: auto;
+  min-height: 36px;
 }
 
 .lots-spreadsheet-wrapper {
