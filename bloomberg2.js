@@ -1,5 +1,5 @@
 // ============================================
-// BLOOMBERG2.JS — Advanced Terminal Features (Part 2)
+// BLOOMBERG2.JS — Advanced Terminal Features (Part 2) v2.1
 // Features: Screener, Fundamentals, Economic Calendar, Peer Comparison
 // Depends on: app.js globals (marketApi, api, portfolio, watchlist,
 //             stockDataCache, authToken), Chart.js (global)
