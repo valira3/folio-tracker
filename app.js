@@ -730,6 +730,7 @@ function switchView(view) {
     if (view === 'insights') renderInsightsView();
     if (view === 'watchlist') renderWatchlistView();
     if (view === 'portfolio') renderPortfolioView();
+    if (view === 'lots') renderLotsView();
   }
 }
 
@@ -2434,12 +2435,447 @@ async function renderDetailPrediction(ticker) {
 }
 
 // ============================================
+// SECTION 10B: LOTS SPREADSHEET VIEW
+// ============================================
+
+let lotsSearchDebounces = {};
+
+function renderLotsView() {
+  const wrapper = document.getElementById('lots-spreadsheet-wrapper');
+  if (!wrapper) return;
+
+  // Flatten all lots across all tickers into rows
+  const rows = [];
+  for (const [ticker, data] of Object.entries(portfolio)) {
+    data.lots.forEach((lot, idx) => {
+      rows.push({
+        ticker,
+        date: lot.date || '',
+        qty: lot.qty,
+        price: lot.price,
+        type: lot.type || 'buy',
+        lotIdx: idx
+      });
+    });
+  }
+
+  // Sort by ticker, then by date
+  rows.sort((a, b) => {
+    const tc = a.ticker.localeCompare(b.ticker);
+    if (tc !== 0) return tc;
+    return (a.date || '').localeCompare(b.date || '');
+  });
+
+  if (rows.length === 0) {
+    wrapper.innerHTML = `
+      <div class="lots-empty">
+        <svg class="lots-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        <div class="lots-empty-title">No tax lots yet</div>
+        <div class="lots-empty-desc">Add your first stock purchase using the button above.<br>You can enter multiple lots per ticker.</div>
+        <button class="btn-primary" id="lots-empty-add">Add Your First Lot</button>
+      </div>
+    `;
+    document.getElementById('lots-empty-add')?.addEventListener('click', () => addNewLotRow());
+    return;
+  }
+
+  // Compute totals
+  let totalCost = 0;
+  let totalValue = 0;
+  rows.forEach(r => {
+    if (r.type === 'buy') {
+      const stock = getStock(r.ticker);
+      totalCost += r.qty * r.price;
+      totalValue += stock ? r.qty * stock.price : r.qty * r.price;
+    }
+  });
+  const totalPnl = totalValue - totalCost;
+
+  // Build table grouped by ticker
+  let currentTicker = null;
+  let tbodyHTML = '';
+  rows.forEach((row, rowIdx) => {
+    if (row.ticker !== currentTicker) {
+      currentTicker = row.ticker;
+      const stock = getStock(row.ticker);
+      const name = stock ? stock.name : row.ticker;
+      const tickerLots = rows.filter(r => r.ticker === row.ticker);
+      const totalShares = tickerLots.reduce((sum, r) => sum + (r.type === 'buy' ? r.qty : -r.qty), 0);
+      tbodyHTML += `
+        <tr class="lots-group-header">
+          <td colspan="6">
+            <span class="lots-group-name">
+              ${currentTicker} <span style="font-weight:500; color:var(--color-text-muted); text-transform:none; font-size:10px;">${name}</span>
+              <span class="lots-group-shares">${fmt(totalShares, totalShares % 1 === 0 ? 0 : 2)} shares</span>
+            </span>
+          </td>
+        </tr>
+      `;
+    }
+
+    const stock = getStock(row.ticker);
+    const currentPrice = stock ? stock.price : null;
+    const costBasis = row.qty * row.price;
+    const mktValue = currentPrice ? row.qty * currentPrice : null;
+    const pnl = mktValue !== null && row.type === 'buy' ? mktValue - costBasis : null;
+    const pnlPct = pnl !== null && costBasis > 0 ? (pnl / costBasis) * 100 : null;
+
+    const isSell = row.type === 'sell';
+    const buyActive = !isSell ? 'active-buy' : 'inactive';
+    const sellActive = isSell ? 'active-sell' : 'inactive';
+
+    tbodyHTML += `
+      <tr data-row-idx="${rowIdx}" data-ticker="${row.ticker}" data-lot-idx="${row.lotIdx}">
+        <td class="lots-ticker-cell">
+          <input type="text" class="lots-cell-input lots-ticker-input" value="${row.ticker}" 
+            data-field="ticker" data-row="${rowIdx}" placeholder="AAPL" readonly
+            style="cursor:default; opacity:0.7;">
+        </td>
+        <td>
+          <input type="date" class="lots-cell-input" value="${row.date}" 
+            data-field="date" data-row="${rowIdx}">
+        </td>
+        <td>
+          <div class="lots-type-toggle">
+            <button class="lots-type-btn ${buyActive}" data-type="buy" data-row="${rowIdx}">Buy</button>
+            <button class="lots-type-btn ${sellActive}" data-type="sell" data-row="${rowIdx}">Sell</button>
+          </div>
+        </td>
+        <td>
+          <input type="number" class="lots-cell-input" value="${row.qty}" 
+            data-field="qty" data-row="${rowIdx}" placeholder="0" step="0.01" min="0.01">
+        </td>
+        <td>
+          <input type="number" class="lots-cell-input" value="${row.price.toFixed(2)}" 
+            data-field="price" data-row="${rowIdx}" placeholder="0.00" step="0.01" min="0.01">
+        </td>
+        <td>
+          <button class="lots-row-delete" data-row="${rowIdx}" data-ticker="${row.ticker}" data-lot-idx="${row.lotIdx}" aria-label="Delete lot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  wrapper.innerHTML = `
+    <table class="lots-spreadsheet">
+      <thead>
+        <tr>
+          <th>Ticker</th>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Shares</th>
+          <th>Price</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tbodyHTML}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3" style="font-family:var(--font-body);">Portfolio Total</td>
+          <td></td>
+          <td>$${fmt(totalCost)}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
+
+  // Wire up event handlers
+  wireLotsEventHandlers(rows);
+}
+
+function wireLotsEventHandlers(rows) {
+  const wrapper = document.getElementById('lots-spreadsheet-wrapper');
+  if (!wrapper) return;
+
+  // Inline edits — date, qty, price
+  wrapper.querySelectorAll('.lots-cell-input[data-field="date"], .lots-cell-input[data-field="qty"], .lots-cell-input[data-field="price"]').forEach(input => {
+    input.addEventListener('change', () => {
+      const rowIdx = parseInt(input.dataset.row);
+      const row = rows[rowIdx];
+      if (!row) return;
+      const field = input.dataset.field;
+      const ticker = row.ticker;
+      const lotIdx = row.lotIdx;
+
+      if (!portfolio[ticker] || !portfolio[ticker].lots[lotIdx]) return;
+
+      if (field === 'date') {
+        portfolio[ticker].lots[lotIdx].date = input.value;
+      } else if (field === 'qty') {
+        const val = parseFloat(input.value);
+        if (!val || val <= 0) return;
+        portfolio[ticker].lots[lotIdx].qty = val;
+      } else if (field === 'price') {
+        const val = parseFloat(input.value);
+        if (!val || val <= 0) return;
+        portfolio[ticker].lots[lotIdx].price = val;
+      }
+
+      savePortfolio();
+      // Don't re-render entire view on every keystroke — just persist
+    });
+  });
+
+  // Type toggle
+  wrapper.querySelectorAll('.lots-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rowIdx = parseInt(btn.dataset.row);
+      const row = rows[rowIdx];
+      if (!row) return;
+      const newType = btn.dataset.type;
+      const ticker = row.ticker;
+      const lotIdx = row.lotIdx;
+
+      if (!portfolio[ticker] || !portfolio[ticker].lots[lotIdx]) return;
+
+      portfolio[ticker].lots[lotIdx].type = newType;
+      savePortfolio();
+
+      // Update toggle visuals
+      const tr = btn.closest('tr');
+      tr.querySelectorAll('.lots-type-btn').forEach(b => {
+        if (b.dataset.type === 'buy') {
+          b.className = 'lots-type-btn ' + (newType === 'buy' ? 'active-buy' : 'inactive');
+        } else {
+          b.className = 'lots-type-btn ' + (newType === 'sell' ? 'active-sell' : 'inactive');
+        }
+      });
+    });
+  });
+
+  // Delete rows
+  wrapper.querySelectorAll('.lots-row-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ticker = btn.dataset.ticker;
+      const lotIdx = parseInt(btn.dataset.lotIdx);
+      if (portfolio[ticker] && portfolio[ticker].lots[lotIdx] !== undefined) {
+        portfolio[ticker].lots.splice(lotIdx, 1);
+        if (portfolio[ticker].lots.length === 0) delete portfolio[ticker];
+        savePortfolio();
+        renderLotsView();
+        renderPortfolioView();
+      }
+    });
+  });
+
+  // Top "Add Row" button
+  document.getElementById('lots-add-row-top')?.addEventListener('click', () => addNewLotRow());
+}
+
+// Add a new empty row — opens a mini inline flow
+function addNewLotRow() {
+  const wrapper = document.getElementById('lots-spreadsheet-wrapper');
+  if (!wrapper) return;
+
+  // Make sure there's a table; if empty state, build skeleton first
+  let table = wrapper.querySelector('.lots-spreadsheet');
+  if (!table) {
+    wrapper.innerHTML = `
+      <table class="lots-spreadsheet">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Shares</th>
+            <th>Price</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    `;
+    table = wrapper.querySelector('.lots-spreadsheet');
+  }
+
+  const tbody = table.querySelector('tbody');
+  const today = new Date().toISOString().split('T')[0];
+
+  const newRow = document.createElement('tr');
+  newRow.className = 'lots-row-new';
+  newRow.innerHTML = `
+    <td class="lots-ticker-cell">
+      <input type="text" class="lots-cell-input lots-ticker-input" placeholder="Search ticker..." 
+        data-field="new-ticker" autocomplete="off">
+      <div class="lots-ticker-results" id="new-lot-ticker-results"></div>
+    </td>
+    <td>
+      <input type="date" class="lots-cell-input" data-field="new-date" value="${today}">
+    </td>
+    <td>
+      <div class="lots-type-toggle">
+        <button class="lots-type-btn active-buy" data-type="buy" data-new-row="1">Buy</button>
+        <button class="lots-type-btn inactive" data-type="sell" data-new-row="1">Sell</button>
+      </div>
+    </td>
+    <td>
+      <input type="number" class="lots-cell-input" data-field="new-qty" placeholder="Shares" step="0.01" min="0.01">
+    </td>
+    <td>
+      <input type="number" class="lots-cell-input" data-field="new-price" placeholder="Price" step="0.01" min="0.01">
+    </td>
+    <td>
+      <button class="lots-row-delete" data-action="cancel-new" aria-label="Cancel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </td>
+  `;
+
+  // Insert at top of tbody
+  tbody.insertBefore(newRow, tbody.firstChild);
+
+  // Focus the ticker input
+  const tickerInput = newRow.querySelector('[data-field="new-ticker"]');
+  setTimeout(() => tickerInput.focus(), 50);
+
+  let newRowType = 'buy';
+  let newRowTicker = null;
+
+  // Type toggle for new row
+  newRow.querySelectorAll('.lots-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      newRowType = btn.dataset.type;
+      newRow.querySelectorAll('.lots-type-btn').forEach(b => {
+        if (b.dataset.type === 'buy') {
+          b.className = 'lots-type-btn ' + (newRowType === 'buy' ? 'active-buy' : 'inactive');
+        } else {
+          b.className = 'lots-type-btn ' + (newRowType === 'sell' ? 'active-sell' : 'inactive');
+        }
+      });
+    });
+  });
+
+  // Cancel button
+  newRow.querySelector('[data-action="cancel-new"]').addEventListener('click', () => {
+    newRow.remove();
+  });
+
+  // Ticker autocomplete
+  let debounce;
+  tickerInput.addEventListener('input', (e) => {
+    clearTimeout(debounce);
+    debounce = setTimeout(async () => {
+      const q = e.target.value.trim().toUpperCase();
+      const resultsDiv = newRow.querySelector('.lots-ticker-results');
+      if (!q || q.length < 1) { resultsDiv.classList.remove('visible'); return; }
+
+      const matches = await searchStocks(q);
+      if (matches.length === 0) { resultsDiv.classList.remove('visible'); return; }
+
+      resultsDiv.innerHTML = matches.map(m => `
+        <div class="lots-ticker-result" data-symbol="${m.symbol}" data-name="${m.name}">
+          <span class="lots-ticker-result-symbol">${m.symbol}</span>
+          <span class="lots-ticker-result-name">${m.name}</span>
+        </div>
+      `).join('');
+      resultsDiv.classList.add('visible');
+
+      resultsDiv.querySelectorAll('.lots-ticker-result').forEach(item => {
+        item.addEventListener('click', async () => {
+          newRowTicker = item.dataset.symbol;
+          tickerInput.value = newRowTicker;
+          resultsDiv.classList.remove('visible');
+
+          // Try to auto-fill price
+          let stock = getStock(newRowTicker);
+          if (!stock) {
+            try {
+              const data = await marketApi('/quotes', { tickers: newRowTicker });
+              if (data.quotes) {
+                Object.assign(stockDataCache, data.quotes);
+                stock = data.quotes[newRowTicker];
+              }
+            } catch(e) {}
+          }
+          if (stock && stock.price) {
+            newRow.querySelector('[data-field="new-price"]').value = stock.price.toFixed(2);
+          }
+          // Focus the qty field
+          newRow.querySelector('[data-field="new-qty"]').focus();
+        });
+      });
+    }, 250);
+  });
+
+  // Also allow direct ticker entry (typed without selecting from dropdown)
+  tickerInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      const resultsDiv = newRow.querySelector('.lots-ticker-results');
+      resultsDiv.classList.remove('visible');
+      if (!newRowTicker && tickerInput.value.trim()) {
+        newRowTicker = tickerInput.value.trim().toUpperCase();
+      }
+    }, 200);
+  });
+
+  // Save on price blur or Enter key in price field
+  const saveNewRow = () => {
+    const ticker = newRowTicker || tickerInput.value.trim().toUpperCase();
+    const date = newRow.querySelector('[data-field="new-date"]').value;
+    const qty = parseFloat(newRow.querySelector('[data-field="new-qty"]').value);
+    const price = parseFloat(newRow.querySelector('[data-field="new-price"]').value);
+
+    if (!ticker || !date || !qty || !price || qty <= 0 || price <= 0) return false;
+
+    if (!portfolio[ticker]) {
+      portfolio[ticker] = { lots: [] };
+    }
+    portfolio[ticker].lots.push({ date, qty, price, type: newRowType });
+    savePortfolio();
+
+    // Fetch quote if not cached
+    if (!getStock(ticker)) {
+      marketApi('/quotes', { tickers: ticker }).then(data => {
+        if (data.quotes) Object.assign(stockDataCache, data.quotes);
+        renderLotsView();
+        renderPortfolioView();
+      }).catch(() => {});
+    }
+
+    renderLotsView();
+    renderPortfolioView();
+    return true;
+  };
+
+  // Save on Enter in any field
+  newRow.querySelectorAll('.lots-cell-input').forEach(input => {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveNewRow();
+      }
+    });
+  });
+
+  // Save on price field blur (if all fields filled)
+  newRow.querySelector('[data-field="new-price"]').addEventListener('blur', () => {
+    const ticker = newRowTicker || tickerInput.value.trim().toUpperCase();
+    const qty = parseFloat(newRow.querySelector('[data-field="new-qty"]').value);
+    const price = parseFloat(newRow.querySelector('[data-field="new-price"]').value);
+    if (ticker && qty > 0 && price > 0) {
+      saveNewRow();
+    }
+  });
+}
+
+// ============================================
 // SECTION 11: MODALS & FAB
 // ============================================
 
 let selectedAddTicker = null;
 
-document.getElementById('fab-add')?.addEventListener('click', openAddStockModal);
+document.getElementById('fab-add')?.addEventListener('click', () => {
+  if (currentView === 'lots') {
+    addNewLotRow();
+  } else {
+    openAddStockModal();
+  }
+});
 
 function openAddStockModal() {
   selectedAddTicker = null;
