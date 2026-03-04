@@ -161,6 +161,20 @@
         <div class="holdings-list" id="holdings-list"></div>
       </section>
 
+      <!-- ====== LOTS (SPREADSHEET) VIEW ====== -->
+      <section class="view" id="view-lots">
+        <div class="lots-view-header">
+          <span class="lots-view-title">Tax Lots</span>
+          <button class="btn-primary lots-add-row-btn" id="lots-add-row-top">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Row
+          </button>
+        </div>
+        <div class="lots-spreadsheet-wrapper" id="lots-spreadsheet-wrapper">
+          <!-- Spreadsheet grid rendered by JS -->
+        </div>
+      </section>
+
       <!-- ====== CHART VIEW ====== -->
       <section class="view" id="view-chart">
         <div class="chart-container">
@@ -338,6 +352,10 @@
       <button class="nav-item active" data-view="portfolio" aria-label="Portfolio">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         <span>Portfolio</span>
+      </button>
+      <button class="nav-item" data-view="lots" aria-label="Tax Lots">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        <span>Lots</span>
       </button>
       <button class="nav-item" data-view="chart" aria-label="Charts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
