@@ -2439,6 +2439,7 @@ async function renderDetailPrediction(ticker) {
 // ============================================
 
 let lotsSearchDebounces = {};
+let lotsEditRenderTimer;
 
 function renderLotsView() {
   const wrapper = document.getElementById('lots-spreadsheet-wrapper');
@@ -2617,7 +2618,12 @@ function wireLotsEventHandlers(rows) {
       }
 
       savePortfolio();
-      // Don't re-render entire view on every keystroke — just persist
+      // Debounced re-render to update group headers and totals
+      clearTimeout(lotsEditRenderTimer);
+      lotsEditRenderTimer = setTimeout(() => {
+        renderLotsView();
+        renderPortfolioView();
+      }, 800);
     });
   });
 
@@ -2663,8 +2669,13 @@ function wireLotsEventHandlers(rows) {
     });
   });
 
-  // Top "Add Row" button
-  document.getElementById('lots-add-row-top')?.addEventListener('click', () => addNewLotRow());
+  // Top "Add Row" button — avoid duplicate listeners by using a clean handler
+  const addBtn = document.getElementById('lots-add-row-top');
+  if (addBtn) {
+    const newBtn = addBtn.cloneNode(true);
+    addBtn.parentNode.replaceChild(newBtn, addBtn);
+    newBtn.addEventListener('click', () => addNewLotRow());
+  }
 }
 
 // Add a new empty row — opens a mini inline flow
